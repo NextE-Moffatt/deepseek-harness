@@ -2,7 +2,7 @@
 
 [English](README.md) | 中文
 
-个人知识库：位于 session workspace 内的 Markdown + YAML 知识卡片库，带 FTS5 检索、晋升状态机、`kb_write` / `kb_read` / `kb_search` / `kb_promote` 工具与会话启动时的知识包注入。设计：[dsh-kb 包组设计与里程碑 1 范围](../../../.agents/notes/implemented/feature/2026-08-18-dsh-kb-package-group-milestone-1.md) 与 [知识包与 kb/injected 注入](../../../.agents/notes/implemented/feature/2026-08-18-dsh-kb-inject.md)。
+个人 + 团队知识库：session workspace 内与共享团队 git 仓库（`cards/` + 文档型 `docs/`）中的 Markdown + YAML 知识卡片，带 FTS5 检索、晋升状态机、双门禁治理与保鲜调度、热度遥测投影、`kb_write` / `kb_read` / `kb_search` / `kb_promote` / `kb_gate_check` / `kb_team_promote` / `kb_team_read` / `kb_review` / `kb_archive` / `kb_revive` / `kb_team_status` / `kb_team_commit` / `kb_freshness` 工具与会话启动时的知识包注入。设计：[dsh-kb 包组设计与里程碑 1 范围](../../../.agents/notes/implemented/feature/2026-08-18-dsh-kb-package-group-milestone-1.md)、[知识包与 kb/injected 注入](../../../.agents/notes/implemented/feature/2026-08-18-dsh-kb-inject.md) 与 [里程碑 3：团队库、治理与遥测](../../../.agents/notes/implemented/feature/2026-08-19-dsh-kb-milestone-3.md)。
 
 ## Service
 
@@ -14,9 +14,17 @@
 | `readCard(root, id)` | 跨层级读取一张卡片；不存在时抛错。 |
 | `search(root, request)` | FTS5 BM25 检索 + 结构化过滤；索引无法打开时显式降级为 `mode: 'scan'`。 |
 | `promote(root, id, target, evidence?)` | 校验状态机、重写卡片文件并返回新状态。 |
+| `promoteToTeam(root, id, evidence)` | 第一道门准入：强制执行门禁规则、把个人草稿以 `pending` 移入团队库并删除个人文件。 |
+| `reviewTeam(root, id, approved)` | 第二道门：复核通过时团队 `pending → ready`；不通过则不变更。 |
+| `archiveTeam(root, id)` / `reviveTeam(root, id)` | 退场/恢复边：`ready|revived → archived` 与 `archived → revived`。 |
+| `teamRead(root, id)` | 读取一张团队卡片；团队库无此卡时抛错。 |
+| `teamStatus(root)` / `teamCommit(root, message)` | 团队工作树的 porcelain 状态与暂存 + 提交操作（人复核点）。 |
+| `listTeamDocs(root)` / `readTeamDoc(root, docPath)` | `docs/` Wiki 层（仓库相对路径）；docs 永不进入引用池。 |
+| `heat(root)` | 热度账本聚合：哪些卡片被哪些会话消费。 |
+| `freshnessReview(root, today?)` | 待复核清单：已过期与即将过期的卡片，附热度与建议。 |
 | `importDir(options)` | 增量采集：从源目录导入卡片形 `*.md`，带检查点与去重。 |
 
-服务方法不持有 session；`kb/*` session 事件由工具追加。后续模块（治理、复盘）复用同一接缝。
+服务方法不持有 session；`kb/*` session 事件由工具追加。后续模块（复盘、web 工作台）复用同一接缝。
 
 ## Configuration
 
@@ -25,6 +33,11 @@
 | `cardsPath` | `kb/cards` | 相对 session workspace 根目录的库路径；P0–P3 为子目录，卡片文件为 `<id>.md`。 |
 | `indexPath` | `kb/.kb-index.sqlite` | 相对 workspace 根目录的 FTS5 索引库路径。 |
 | `cardTtlDays` | `90` | 有效期缺省时加算的天数。 |
+| `teamRepoPath` | — | 团队库 git 工作树（绝对路径，或相对 session workspace 根）；缺省禁用团队库。 |
+| `heatPath` | `kb/.kb-heat.jsonl` | 相对 workspace 根的热度账本路径。 |
+| `freshnessWarningDays` | `14` | 距有效期多少天内算"即将过期"。 |
+| `freshnessIntervalDays` | `0` | 保鲜扫描间隔天数；`0` 关闭调度器。调度器是每会话的 `ctx.jobs` 任务，需要组合 jobs 服务（挂 `@deepseek-ai/dsh-jobs-local` 与 job 控制器如 `@deepseek-ai/dsh-tool-jobs`）；配置了间隔但无 jobs 服务时每个 context 记一条 loud error。 |
+| `teamWriteApproval` | `true` | 团队写工具走审批 `ask` 门；无审批服务时拒绝。 |
 | `packs` | `[]` | 会话启动时注入的知识包；见 [Knowledge packs](#knowledge-packs)。 |
 
 非法配置在加载时 loud fail。
@@ -49,7 +62,9 @@
 
 - **检索后端**：`CardIndex`（FTS5 `unicode61`、BM25、按库根目录一个库）可替换；降级契约（`mode: 'scan'` + 说明，绝不编造结果）是接口的一部分。中文按字切分，子串查询无需分词词典。
 - **采集接缝**：`importDir` 是模式 E 的最小实现；`ctx.jobs` 调度与原始笔记包装随真实连接器落地。
-- **包选择**：`selectPackCards`（纯函数）是订阅过滤；未来 `kb_pack` 工具或 web 工作台出现真实消费者时再包装。
+- **包选择**：`selectPackCards`（纯函数）是横跨两库的订阅过滤；未来 `kb_pack` 工具或 web 工作台出现真实消费者时再包装。
+- **治理逻辑**：`evaluateGate`、`gradeCard`、`partitionReview` 与 `recommendFreshness`（纯函数）分别是双门禁、质量分级、保鲜分区与基于热度的建议；工具与调度器组合它们。
+- **热度投影**：`projectInjectedHeat` + `HeatLedger` 把 `kb/injected` 事件的消费投影进 JSONL 账本；仅凭 session 日志即可重建。
 
 ## Model Experience
 
@@ -97,7 +112,14 @@
 
 ## Known Limitations and Deferred Work
 
-- **仅个人库**——团队库（共享 git 仓库的 `cards/` + `docs/`）、治理、记账、复盘、Web 工作台与 MCP 暴露按路线图推迟到里程碑 1 之后。
+- **无团队库检索**——`kb_search` 只覆盖个人库；引用池经 `kb_team_read` 与知识包注入可达，双库统一检索是 kb-search 升级路径。
+- **docs 对 agent 只读**——`docs/` Wiki 是给人读的材料；agent 侧写 docs 等 web 工作台。
+- **kb 从不 clone/fetch/push**——团队仓库的远端同步是团队自己的 git 工作流；kb 的提交停留在本地直到团队推送。
+- **热度按 workspace 记账**——`KbConfig.heatPath` 账本只记录本 workspace 的会话；团队库的跨 workspace 聚合是工作台工作。
+- **团队卡片无分布式锁**——同一卡片的并发状态迁移可能丢失更新；push 时的 git 冲突解决是边界（见 [git 策略 Note](../../../.agents/notes/implemented/feature/2026-08-19-dsh-kb-team-git-strategy.md)）。
+- **保鲜调度依赖 jobs 服务**——调度需要组合的 `ctx.jobs` 实现与控制器；没有时按需 `kb_freshness` 工具仍可用，且配置错误会 loud log。
+- **向量/RAG 检索后置**——FTS5 + 结构化过滤是里程碑 1 契约；团队卡片约 500 条后由 kb-search 接缝吸收向量后端（设计 §4.4）。
+- **复盘、web 工作台与 MCP 暴露后置**——路线图里程碑 4+。
 - **检索每次同步重新解析全库**——每次 `search` 都重读并重解析所有卡片文件；索引写入按 mtime/size 差异更新，但解析成本与库大小线性。
 - **原始笔记采集推迟**——`importDir` 只导入卡片形文件并计数跳过原始文件；笔记转卡片归复盘/蒸馏里程碑，`ctx.jobs` 调度等待真实连接器。
 - **中文检索按字切分**——FTS 索引将中文按字拆开以支持子串查询，无需分词词典；排序与短语语义与分词检索不同，单字查询会命中所有含该字的卡片。

@@ -1964,6 +1964,11 @@
       "doc": "docs/subsystems/kb.md",
       "symbol": "PackSection",
       "source": "packages/kb/kb-core/src/types.ts"
+    },
+    {
+      "doc": "docs/subsystems/kb.md",
+      "symbol": "CardGrade",
+      "source": "packages/kb/kb-core/src/types.ts"
     }
   ]
 }

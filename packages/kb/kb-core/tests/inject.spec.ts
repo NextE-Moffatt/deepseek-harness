@@ -2,7 +2,7 @@
 // a pack append that throws is contained per pack, and the library read
 // failure is contained per session. The happy path and the once-per-session
 // guard live in the loader-composition and agent-loop integration suites.
-import { mkdtemp, rm } from 'node:fs/promises'
+import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
@@ -106,5 +106,93 @@ describe('injectPacks failure containment', () => {
     } as unknown as KbService
     const agent = throwingAgent(root)
     expect(() => { injectPacks(ctx, kb, agent) }).not.toThrow()
+  })
+
+  it('injects team cards alongside personal ones and reports team parse failures', async () => {
+    const ctx = new Context()
+    const root = await libraryWithCard()
+    const teamRoot = await mkdtemp(join(tmpdir(), 'dsh-kb-inject-team-'))
+    roots.push(teamRoot)
+    await mkdir(join(teamRoot, '.git'))
+    await mkdir(join(teamRoot, 'cards'))
+    await writeFile(join(teamRoot, 'cards', 'rule-20260818-002.md'), `---
+id: rule-20260818-002
+type: rule
+title: 团队规则
+库: team
+状态: ready
+适用条件: 团队场景
+来源: MR#1
+责任人: 李四
+有效期: 2026-12-31
+标签:
+  - 告警
+---
+
+## 核心结论
+
+结论。
+
+## 应做
+
+- 做
+
+## 不应做
+
+- 不做
+`, 'utf8')
+    await writeFile(join(teamRoot, 'cards', 'broken.md'), 'not a card', 'utf8')
+    const kb = {
+      config: {
+        packs: [{ name: '告警处置', tags: ['告警'] }],
+        cardsPath: 'kb/cards',
+        teamRepoPath: teamRoot,
+      },
+      teamRepoRoot: () => teamRoot,
+    } as unknown as KbService
+    const appended: unknown[] = []
+    const agent = {
+      id: 'x',
+      session: {
+        header: { cwd: root },
+        events: [],
+        append: (_type: string, data: unknown) => {
+          appended.push(data)
+          return { seq: appended.length }
+        },
+      },
+    } as unknown as Agent
+    injectPacks(ctx, kb, agent)
+    const cardIds = (appended[0] as { cardIds: string[] }).cardIds
+    expect(cardIds).toEqual(['rule-20260818-001', 'rule-20260818-002'])
+  })
+
+  it('continues with the personal library when the configured team repository is unreadable', async () => {
+    const ctx = new Context()
+    const root = await libraryWithCard()
+    const kb = {
+      config: {
+        packs: [{ name: '告警处置', tags: ['告警'] }],
+        cardsPath: 'kb/cards',
+        teamRepoPath: '/no/such/team/repo',
+      },
+      teamRepoRoot: () => '/no/such/team/repo',
+    } as unknown as KbService
+    const agent = {
+      id: 'x',
+      session: {
+        header: { cwd: root },
+        events: [],
+        append: (_type: string, data: unknown) => {
+          appended.push(data)
+          return { seq: appended.length }
+        },
+      },
+    } as unknown as Agent
+    const appended: unknown[] = []
+    injectPacks(ctx, kb, agent)
+    // The personal card still injects; the team failure only logs.
+    expect(appended).toHaveLength(1)
+    expect((appended[0] as { cardIds: string[] }).cardIds).toEqual(['rule-20260818-001'])
   })
 })

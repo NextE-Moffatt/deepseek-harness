@@ -15,13 +15,13 @@ import type { ToolExecution } from '@deepseek-ai/dsh-tools'
 import { defineTool } from '@deepseek-ai/dsh-tools'
 import { CARD_STATUSES, CARD_TIERS, CARD_TYPES, isValidDateString, serializeCard } from './card.ts'
 import type { KbService } from './index.ts'
-import type { Card, CardId, CardStatus } from './types.ts'
+import type { Card, CardId, CardStatus, CardTier } from './types.ts'
 
 /**
  * The calling agent and its session workspace root; fails loud when there is
- * no agent or its session has no cwd.
+ * no agent or its session has no cwd. Shared with the govern tool set.
  */
-function sessionRoot(exec: ToolExecution): { root: string; agent: Agent } {
+export function sessionRoot(exec: ToolExecution): { root: string; agent: Agent } {
   const agent = exec.agent
   const cwd = agent?.session.header.cwd
   if (agent === undefined || cwd === undefined) {
@@ -31,14 +31,14 @@ function sessionRoot(exec: ToolExecution): { root: string; agent: Agent } {
 }
 
 /** Trim a required string argument, failing on blanks. */
-function requiredText(name: string, value: string): string {
+export function requiredText(name: string, value: string): string {
   const trimmed = value.trim()
   if (trimmed === '') throw new Error(`${name} must be a non-empty string`)
   return trimmed
 }
 
 /** Trim an optional string argument; blank becomes absent. */
-function optionalText(value: string | undefined): string | undefined {
+export function optionalText(value: string | undefined): string | undefined {
   const trimmed = value?.trim()
   return trimmed === undefined || trimmed === '' ? undefined : trimmed
 }
@@ -51,6 +51,102 @@ function nonEmptyList(name: string, value: readonly string[]): string[] {
     if (trimmed === '') throw new Error(`${name} item ${index} must be a non-empty string`)
     return trimmed
   })
+}
+
+/**
+ * The full-card output value shared by `kb_read` and `kb_team_read`. The
+ * generic return lets the caller's schema-derived output type flow through.
+ */
+/** The personal-tagged read face (kb_read). */
+export interface CardReadValueWithTier {
+  id: string
+  type: string
+  title: string
+  库: string
+  状态: string
+  适用条件: string
+  核心结论: string
+  应做: string[]
+  不应做: string[]
+  反例?: string
+  来源?: string
+  责任人: string
+  有效期: string
+  标签: string[]
+  tier: string
+  path: string
+}
+
+/** The team read face (kb_team_read) — no personal tier. */
+export interface CardReadValue {
+  id: string
+  type: string
+  title: string
+  库: string
+  状态: string
+  适用条件: string
+  核心结论: string
+  应做: string[]
+  不应做: string[]
+  反例?: string
+  来源?: string
+  责任人: string
+  有效期: string
+  标签: string[]
+  path: string
+}
+
+/** Read one card into its output value; the tier parameter selects the personal face. */
+export function cardReadValue(card: Card, path: string, tier: CardTier): CardReadValueWithTier
+export function cardReadValue(card: Card, path: string): CardReadValue
+export function cardReadValue(card: Card, path: string, tier?: CardTier): CardReadValue | CardReadValueWithTier {
+  return {
+    id: card.id,
+    type: card.type,
+    title: card.title,
+    库: card.库,
+    状态: card.状态,
+    适用条件: card.适用条件,
+    核心结论: card.核心结论,
+    应做: card.应做,
+    不应做: card.不应做,
+    ...card.反例 === undefined ? {} : { 反例: card.反例 },
+    ...card.来源 === undefined ? {} : { 来源: card.来源 },
+    责任人: card.责任人,
+    有效期: card.有效期,
+    标签: card.标签,
+    ...tier === undefined ? {} : { tier },
+    path,
+  }
+}
+
+/**
+ * Run one lifecycle transition through the promotion state machine and log
+ * it: apply the transition, append `kb/promote`, and project the canonical
+ * result. Shared by `kb_promote`, `kb_archive`, and `kb_revive`.
+ */
+export async function applyTransition(
+  agent: Agent,
+  root: string,
+  id: CardId,
+  to: CardStatus,
+  apply: (root: string, id: CardId) => Promise<{ card: Card; from: CardStatus; path: string }>,
+  evidence?: string,
+): Promise<{ id: string; from: string; to: string; title: string; path: string }> {
+  const result = await apply(root, id)
+  agent.session.append('kb/promote', {
+    id: result.card.id,
+    from: result.from,
+    to,
+    ...evidence === undefined ? {} : { evidence },
+  })
+  return {
+    id: result.card.id,
+    from: result.from,
+    to: result.card.状态,
+    title: result.card.title,
+    path: result.path,
+  }
 }
 
 /** The safe-file-name id pattern shared with the card parser. */
@@ -229,24 +325,7 @@ export function registerKbTools(ctx: Context, kb: KbService): void {
     },
     async execute(args, exec) {
       const info = await kb.readCard(sessionRoot(exec).root, args.id as CardId)
-      return {
-        id: info.card.id,
-        type: info.card.type,
-        title: info.card.title,
-        库: info.card.库,
-        状态: info.card.状态,
-        适用条件: info.card.适用条件,
-        核心结论: info.card.核心结论,
-        应做: info.card.应做,
-        不应做: info.card.不应做,
-        ...info.card.反例 === undefined ? {} : { 反例: info.card.反例 },
-        ...info.card.来源 === undefined ? {} : { 来源: info.card.来源 },
-        责任人: info.card.责任人,
-        有效期: info.card.有效期,
-        标签: info.card.标签,
-        tier: info.tier,
-        path: info.path,
-      }
+      return cardReadValue(info.card, info.path, info.tier)
     },
     presentCall: args => ({ card: 'generic', title: `读卡片 ${args.id}`, kind: 'other', rawInput: args }),
     presentResult: (_args, result) => ({ card: 'generic', title: '卡片内容', content: result.content }),
@@ -338,7 +417,7 @@ export function registerKbTools(ctx: Context, kb: KbService): void {
 
   ctx.tools.register(defineTool({
     name: 'kb_promote',
-    description: '晋升卡片状态（状态机：draft → pending → ready）。draft → pending 需要客观信号（上线/交付/关闭/复用）；pending → ready 表示已复核、可进引用池。',
+    description: '晋升个人库卡片状态（状态机：draft → pending → ready）。draft → pending 需要客观信号（上线/交付/关闭/复用）；pending → ready 表示已复核、可进引用池。团队库卡片不适用：团队库状态变更请用 kb_review / kb_archive / kb_revive。',
     parameters: {
       id: { type: 'string', required: true, description: '卡片唯一 id（如 rule-20250818-001）' },
       target: {
@@ -366,21 +445,14 @@ export function registerKbTools(ctx: Context, kb: KbService): void {
     },
     async execute(args, exec) {
       const { root, agent } = sessionRoot(exec)
-      const target = args.target as CardStatus
-      const promoted = await kb.promote(root, args.id as CardId, target, optionalText(args.evidence))
-      agent.session.append('kb/promote', {
-        id: promoted.card.id,
-        from: promoted.from,
-        to: promoted.to,
-        ...promoted.evidence === undefined ? {} : { evidence: promoted.evidence },
-      })
-      return {
-        id: promoted.card.id,
-        from: promoted.from,
-        to: promoted.to,
-        title: promoted.card.title,
-        path: promoted.path,
+      const id = args.id as CardId
+      const team = await kb.teamCard(root, id)
+      if (team !== undefined) {
+        throw new Error(`卡片 ${id} 属于团队库（${team.path}）：团队库状态变更请用 kb_review / kb_archive / kb_revive`)
       }
+      const target = args.target as CardStatus
+      const evidence = optionalText(args.evidence)
+      return applyTransition(agent, root, id, target, (r, i) => kb.promote(r, i, target, evidence), evidence)
     },
     presentCall: args => ({ card: 'generic', title: `晋升卡片 ${args.id} → ${args.target}`, kind: 'other', rawInput: args }),
     presentResult: (_args, result) => ({ card: 'generic', title: '卡片已晋升', content: result.content }),

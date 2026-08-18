@@ -57,9 +57,18 @@ describe('resolvePacks', () => {
       name: '告警处置',
       tags: ['告警', '告警'],
       tier: ['P2', 'P3'],
+      library: ['personal', 'team'],
       status: ['ready'],
       limit: 5,
-    }])).toEqual([{ name: '告警处置', tags: ['告警'], tier: ['P2', 'P3'], status: ['ready'], limit: 5 }])
+    }])).toEqual([{
+      name: '告警处置', tags: ['告警'], tier: ['P2', 'P3'],
+      library: ['personal', 'team'], status: ['ready'], limit: 5,
+    }])
+  })
+
+  it('fails loud on an unknown library member', () => {
+    expect(() => resolvePacks([{ name: 'p', library: ['work'] }]))
+      .toThrow('packs[0].library must contain only personal, team')
   })
 
   it('fails loud when packs is not an array', () => {
@@ -136,6 +145,19 @@ describe('selectPackCards', () => {
     expect(selected.map(entryValue => entryValue.card.id)).toEqual(['rule-20250818-004'])
     expect(selectPackCards([a, archived], { name: '活跃', status: ['draft', 'ready'] })
       .map(entryValue => entryValue.card.id)).toEqual(['case-20250818-001'])
+  })
+
+  it('filters by library allowlist and excludes tier-less team entries from tier filters', () => {
+    const teamEntry = { card: card({ id: 'rule-20250818-010' as CardId, 库: 'team', 标签: ['告警'] }), path: '/repo/cards/rule-20250818-010.md' }
+    const teamOnly = selectPackCards([a, teamEntry], { name: '团队包', library: ['team'] })
+    expect(teamOnly.map(selected => selected.card.id)).toEqual(['rule-20250818-010'])
+    const personalOnly = selectPackCards([a, teamEntry], { name: '个人包', library: ['personal'] })
+    expect(personalOnly.map(selected => selected.card.id)).toEqual(['case-20250818-001'])
+    const noLibrary = selectPackCards([a, teamEntry], { name: '全部' })
+    expect(noLibrary.map(selected => selected.card.id)).toEqual(['case-20250818-001', 'rule-20250818-010'])
+    // A tier filter never matches team entries (they carry no personal tier).
+    const tierFiltered = selectPackCards([a, teamEntry], { name: 'P2', tier: ['P2'] })
+    expect(tierFiltered.map(selected => selected.card.id)).toEqual(['case-20250818-001'])
   })
 
   it('caps at the pack limit after sorting by id', () => {

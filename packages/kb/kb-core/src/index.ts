@@ -10,13 +10,20 @@
  */
 
 import { Context, Service } from '@deepseek-ai/cordis'
-import { resolve } from 'node:path'
+import { isAbsolute, resolve } from 'node:path'
+import { freshnessReview, registerFreshnessSchedule } from './freshness.ts'
+import { evaluateGate } from './govern.ts'
+import type { FreshnessReview } from './govern.ts'
+import { registerGovernTools, registerTeamWriteApproval } from './govern-tools.ts'
 import { importDir as runImport, type ImportOptions, type IngestResult } from './ingest.ts'
 import { registerKbInjection } from './inject.ts'
 import { assertTransition } from './lifecycle.ts'
 import { resolvePacks } from './pack.ts'
 import { CardIndex, openCardIndex, scanSearch, type SearchOutcome, type SearchRequest } from './search.ts'
 import { PersonalCardStore, type CardFileInfo } from './store.ts'
+import { GitRunner } from './gitops.ts'
+import { TeamCardStore, type TeamCardFileInfo } from './team.ts'
+import { aggregateHeat, HeatLedger, registerKbTelemetry, type HeatRow } from './telemetry.ts'
 import { registerKbTools } from './tools.ts'
 import type { Card, CardId, CardStatus, CardTier, CardType, KnowledgePack } from './types.ts'
 
@@ -31,6 +38,7 @@ export {
   KB_PACK_SECTION, KB_PACK_SECTION_ORDER, foldInjected, hasInjectedPack,
   renderCardSection, resolvePacks, selectPackCards,
 } from './pack.ts'
+export type { PackEntry } from './pack.ts'
 export {
   CardIndex, KB_SEARCH_APPLICATION_ID, KB_SEARCH_SCHEMA_VERSION,
   openCardIndex, scanSearch,
@@ -38,10 +46,25 @@ export {
 export type { SearchHit, SearchOutcome, SearchRequest } from './search.ts'
 export { PersonalCardStore } from './store.ts'
 export type { CardFileInfo, CardParseFailure } from './store.ts'
+export { TeamCardStore } from './team.ts'
+export type { TeamCardFileInfo } from './team.ts'
+export { GitRunner } from './gitops.ts'
+export type { GitExec, GitRunResult } from './gitops.ts'
+export {
+  evaluateGate, freshnessPosition, gradeCard, partitionReview,
+  recommendFreshness, renderReviewList, toReviewEntry,
+} from './govern.ts'
+export type {
+  FreshnessPosition, FreshnessRecommendation, FreshnessReview, GateVerdict, ReviewEntry,
+} from './govern.ts'
+export { createFreshnessProducer, freshnessReview, freshnessReviewText, registerFreshnessSchedule } from './freshness.ts'
+export { aggregateHeat, HeatLedger, projectInjectedHeat, registerKbTelemetry } from './telemetry.ts'
+export type { HeatEntry, HeatRow } from './telemetry.ts'
 export { injectPacks, registerKbInjection } from './inject.ts'
 export { importDir } from './ingest.ts'
 export type { ImportOptions, IngestResult } from './ingest.ts'
 export { registerKbTools } from './tools.ts'
+export { registerGovernTools, registerTeamWriteApproval } from './govern-tools.ts'
 
 declare module '@deepseek-ai/cordis' {
   interface Context {
@@ -58,6 +81,16 @@ export interface KbConfig {
   indexPath?: string
   /** Days added to today when a card's 有效期 is omitted (default 90). */
   cardTtlDays?: number
+  /** Team library git work tree path (absolute, or relative to the session workspace root); absent disables the team library. */
+  teamRepoPath?: string
+  /** Heat ledger path relative to the session workspace root (default `kb/.kb-heat.jsonl`). */
+  heatPath?: string
+  /** Days ahead of 有效期 that count as "expiring soon" in the freshness review (default 14). */
+  freshnessWarningDays?: number
+  /** Days between scheduled freshness scans; 0 disables the scheduler (default 0). */
+  freshnessIntervalDays?: number
+  /** Route team-library write tools through the approval `ask` gate (default true). */
+  teamWriteApproval?: boolean
   /** Knowledge packs injected at session start (default none). */
   packs?: KnowledgePack[]
 }
@@ -70,6 +103,16 @@ export interface ResolvedKbConfig {
   indexPath: string
   /** Days added to today when a card's 有效期 is omitted. */
   cardTtlDays: number
+  /** Team library git work tree path; undefined disables the team library. */
+  teamRepoPath?: string
+  /** Heat ledger path relative to the session workspace root. */
+  heatPath: string
+  /** Days ahead of 有效期 that count as "expiring soon". */
+  freshnessWarningDays: number
+  /** Days between scheduled freshness scans; 0 disables the scheduler. */
+  freshnessIntervalDays: number
+  /** Whether team-library write tools route through the approval `ask` gate. */
+  teamWriteApproval: boolean
   /** Validated knowledge packs injected at session start. */
   packs: KnowledgePack[]
 }
@@ -78,8 +121,14 @@ export interface ResolvedKbConfig {
 export const DEFAULT_CARDS_PATH = 'kb/cards'
 /** Default search index path relative to the session workspace root. */
 export const DEFAULT_INDEX_PATH = 'kb/.kb-index.sqlite'
+/** Default heat ledger path relative to the session workspace root. */
+export const DEFAULT_HEAT_PATH = 'kb/.kb-heat.jsonl'
 /** Default 有效期 horizon in days. */
 export const DEFAULT_CARD_TTL_DAYS = 90
+/** Default freshness warning window in days. */
+export const DEFAULT_FRESHNESS_WARNING_DAYS = 14
+/** Default team-write approval gate. */
+export const DEFAULT_TEAM_WRITE_APPROVAL = true
 
 /** Whether a configured path is a safe relative path (no absolute roots, no parent traversal). */
 function isSafeRelativePath(path: string): boolean {
@@ -96,6 +145,11 @@ export function resolveConfig(config: KbConfig): ResolvedKbConfig {
   const cardsPath = config.cardsPath ?? DEFAULT_CARDS_PATH
   const indexPath = config.indexPath ?? DEFAULT_INDEX_PATH
   const cardTtlDays = config.cardTtlDays ?? DEFAULT_CARD_TTL_DAYS
+  const teamRepoPath = config.teamRepoPath
+  const heatPath = config.heatPath ?? DEFAULT_HEAT_PATH
+  const freshnessWarningDays = config.freshnessWarningDays ?? DEFAULT_FRESHNESS_WARNING_DAYS
+  const freshnessIntervalDays = config.freshnessIntervalDays ?? 0
+  const teamWriteApproval = config.teamWriteApproval ?? DEFAULT_TEAM_WRITE_APPROVAL
   const packs = resolvePacks(config.packs)
   if (typeof cardsPath !== 'string' || cardsPath === '' || !isSafeRelativePath(cardsPath)) {
     throw new Error(`KbConfig.cardsPath must be a non-empty relative path without "..", got ${JSON.stringify(cardsPath)}`)
@@ -103,10 +157,35 @@ export function resolveConfig(config: KbConfig): ResolvedKbConfig {
   if (typeof indexPath !== 'string' || indexPath === '' || !isSafeRelativePath(indexPath)) {
     throw new Error(`KbConfig.indexPath must be a non-empty relative path without "..", got ${JSON.stringify(indexPath)}`)
   }
+  if (teamRepoPath !== undefined && (typeof teamRepoPath !== 'string' || teamRepoPath === '')) {
+    throw new Error(`KbConfig.teamRepoPath must be a non-empty path, got ${JSON.stringify(teamRepoPath)}`)
+  }
+  if (typeof heatPath !== 'string' || heatPath === '' || !isSafeRelativePath(heatPath)) {
+    throw new Error(`KbConfig.heatPath must be a non-empty relative path without "..", got ${JSON.stringify(heatPath)}`)
+  }
   if (!Number.isSafeInteger(cardTtlDays) || cardTtlDays < 1) {
     throw new Error(`KbConfig.cardTtlDays must be a positive integer, got ${JSON.stringify(cardTtlDays)}`)
   }
-  return { cardsPath, indexPath, cardTtlDays, packs }
+  if (!Number.isSafeInteger(freshnessWarningDays) || freshnessWarningDays < 0) {
+    throw new Error(`KbConfig.freshnessWarningDays must be a non-negative integer, got ${JSON.stringify(freshnessWarningDays)}`)
+  }
+  if (!Number.isSafeInteger(freshnessIntervalDays) || freshnessIntervalDays < 0) {
+    throw new Error(`KbConfig.freshnessIntervalDays must be a non-negative integer, got ${JSON.stringify(freshnessIntervalDays)}`)
+  }
+  if (typeof teamWriteApproval !== 'boolean') {
+    throw new Error(`KbConfig.teamWriteApproval must be a boolean, got ${JSON.stringify(teamWriteApproval)}`)
+  }
+  return {
+    cardsPath,
+    indexPath,
+    cardTtlDays,
+    ...teamRepoPath === undefined ? {} : { teamRepoPath },
+    heatPath,
+    freshnessWarningDays,
+    freshnessIntervalDays,
+    teamWriteApproval,
+    packs,
+  }
 }
 
 /** Local date as `YYYYMMDD`, the id-sequence key. */
@@ -202,11 +281,37 @@ export class KbService extends Service {
     }, 'dsh-kb-core: close per-root search indexes')
     registerKbTools(ctx, this)
     registerKbInjection(ctx, this)
+    registerGovernTools(ctx, this)
+    registerTeamWriteApproval(ctx, this)
+    registerKbTelemetry(ctx, this)
+    registerFreshnessSchedule(ctx, this)
   }
 
   /** The personal library store for one workspace root. */
   private store(root: string): PersonalCardStore {
     return new PersonalCardStore(resolve(root), this.config.cardsPath)
+  }
+
+  /** The absolute team repository path for one workspace root (config-relative paths resolve against the root).
+   * @param root - the session workspace root.
+   * @returns the absolute team repository path.
+   */
+  teamRepoRoot(root: string): string {
+    const configured = this.config.teamRepoPath
+    if (configured === undefined) {
+      throw new Error('team library is not configured (set KbConfig.teamRepoPath)')
+    }
+    return isAbsolute(configured) ? configured : resolve(root, configured)
+  }
+
+  /** The team library store for one workspace root; fails loud when not configured. */
+  private teamStore(root: string): TeamCardStore {
+    return new TeamCardStore(this.teamRepoRoot(root))
+  }
+
+  /** The team repository's git surface for one workspace root. */
+  private teamGit(root: string): GitRunner {
+    return new GitRunner(this.teamRepoRoot(root))
   }
 
   /** Open (and cache) the search index for one workspace root. */
@@ -317,6 +422,179 @@ export class KbService extends Service {
    */
   importDir(options: ImportOptions): Promise<IngestResult> {
     return runImport(this.store(options.root), options)
+  }
+
+  /**
+   * The first gate's admission: promote a personal draft into the team
+   * library as `pending` (库: team). The gate rule from `evaluateGate` is
+   * enforced here — a BLOCK verdict throws before anything is written — so
+   * the promotion point, not the advisory `kb_gate_check` tool, is the
+   * enforcement. The personal file is removed after the team write succeeds.
+   * @param root - the session workspace root.
+   * @param id - the personal draft card id.
+   * @param evidence - the objective signals (上线/交付/关闭/评审/复用).
+   * @returns the card in its new library plus the team file path.
+   */
+  async promoteToTeam(root: string, id: CardId, evidence: readonly string[]): Promise<{ card: Card; path: string }> {
+    const personal = this.store(root)
+    const info = await personal.find(id)
+    const gate = evaluateGate(info?.card, evidence)
+    if (gate.verdict === 'BLOCK' || info === undefined) {
+      throw new Error(`kb_gate_check BLOCK: ${gate.reasons.join('；')}`)
+    }
+    const team = this.teamStore(root)
+    const card: Card = { ...info.card, 库: 'team', 状态: 'pending' }
+    const path = await team.write(card)
+    await personal.remove(info.tier, id)
+    return { card, path }
+  }
+
+  /**
+   * Look up a card in the personal library, returning undefined when no tier
+   * holds it.
+   * @param root - the session workspace root.
+   * @param id - the card id.
+   * @returns the card file info, or undefined.
+   */
+  async personalCard(root: string, id: CardId): Promise<CardFileInfo | undefined> {
+    return this.store(root).find(id)
+  }
+
+  /**
+   * Look up a card in the team library, returning undefined when the library
+   * does not hold it (or is not configured).
+   * @param root - the session workspace root.
+   * @param id - the card id.
+   * @returns the team card file info, or undefined.
+   */
+  async teamCard(root: string, id: CardId): Promise<TeamCardFileInfo | undefined> {
+    if (this.config.teamRepoPath === undefined) return undefined
+    return this.teamStore(root).find(id)
+  }
+
+  /**
+   * Read one team-library card.
+   * @param root - the session workspace root.
+   * @param id - the card id.
+   * @returns the card file info; throws when the team library does not hold it.
+   */
+  async teamRead(root: string, id: CardId): Promise<TeamCardFileInfo> {
+    const info = await this.teamCard(root, id)
+    if (info === undefined) throw new Error(`team card not found: ${id}`)
+    return info
+  }
+
+  /**
+   * The second gate (human review): an approved review transitions a team
+   * `pending` card to `ready` (the reference pool); a rejected review changes
+   * nothing and the card stays `pending` for more evidence. The caller (tool)
+   * appends `kb/promote` on approval.
+   * @param root - the session workspace root.
+   * @param id - the team card id.
+   * @param approved - whether the reviewer approved the card.
+   * @returns the card and whether the state changed.
+   */
+  async reviewTeam(root: string, id: CardId, approved: boolean): Promise<{ card: Card; changed: boolean }> {
+    const team = this.teamStore(root)
+    const info = await this.teamRead(root, id)
+    if (!approved) return { card: info.card, changed: false }
+    if (info.card.库 !== 'team' || info.card.状态 !== 'pending') {
+      throw new Error(`kb_review requires a team card in status pending, got ${info.card.状态}`)
+    }
+    const card: Card = { ...info.card, 状态: assertTransition(info.card.状态, 'ready') }
+    await team.rewrite(card)
+    return { card, changed: true }
+  }
+
+  /**
+   * Archive a team card: `ready` or `revived` → `archived` (the state machine's
+   * retire edges; other states fail loud).
+   * @param root - the session workspace root.
+   * @param id - the team card id.
+   * @returns the card in its new state, the previous state, and the file path.
+   */
+  async archiveTeam(root: string, id: CardId): Promise<{ card: Card; from: CardStatus; path: string }> {
+    const team = this.teamStore(root)
+    const info = await this.teamRead(root, id)
+    const card: Card = { ...info.card, 状态: assertTransition(info.card.状态, 'archived') }
+    await team.rewrite(card)
+    return { card, from: info.card.状态, path: info.path }
+  }
+
+  /**
+   * Revive an archived team card: `archived` → `revived`.
+   * @param root - the session workspace root.
+   * @param id - the team card id.
+   * @returns the card in its new state, the previous state, and the file path.
+   */
+  async reviveTeam(root: string, id: CardId): Promise<{ card: Card; from: CardStatus; path: string }> {
+    const team = this.teamStore(root)
+    const info = await this.teamRead(root, id)
+    const card: Card = { ...info.card, 状态: assertTransition(info.card.状态, 'revived') }
+    await team.rewrite(card)
+    return { card, from: info.card.状态, path: info.path }
+  }
+
+  /**
+   * The team work tree's porcelain status — what a commit would carry.
+   * @param root - the session workspace root.
+   * @returns the non-empty porcelain lines.
+   */
+  async teamStatus(root: string): Promise<string[]> {
+    return this.teamGit(root).status()
+  }
+
+  /**
+   * Stage and commit the team work tree (the human review point: review the
+   * status, then commit). Fails loud when nothing is staged or git rejects.
+   * @param root - the session workspace root.
+   * @param message - the commit message.
+   * @returns the raw commit output.
+   */
+  async teamCommit(root: string, message: string): Promise<string> {
+    const git = this.teamGit(root)
+    await git.stage()
+    return git.commit(message)
+  }
+
+  /**
+   * The wiki documents under the team library's `docs/`, repository-relative.
+   * @param root - the session workspace root.
+   * @returns the sorted doc paths.
+   */
+  async listTeamDocs(root: string): Promise<string[]> {
+    return this.teamStore(root).listDocs()
+  }
+
+  /**
+   * Read one wiki document.
+   * @param root - the session workspace root.
+   * @param docPath - the repository-relative doc path (`docs/...`).
+   * @returns the document text.
+   */
+  async readTeamDoc(root: string, docPath: string): Promise<string> {
+    return this.teamStore(root).readDoc(docPath)
+  }
+
+  /**
+   * The workspace's aggregated heat ledger: which cards were consumed by which
+   * sessions, projected from `kb/injected` events (see {@link HeatLedger}).
+   * @param root - the session workspace root.
+   * @returns the per-card heat rows, card-id ascending.
+   */
+  async heat(root: string): Promise<HeatRow[]> {
+    return aggregateHeat(await new HeatLedger(resolve(root, this.config.heatPath)).readAll())
+  }
+
+  /**
+   * The freshness pending-review list for one workspace (see
+   * {@link freshnessReview}).
+   * @param root - the session workspace root.
+   * @param today - the reference date `YYYY-MM-DD` (defaults to today, local).
+   * @returns the review list.
+   */
+  freshnessReview(root: string, today?: string): Promise<FreshnessReview> {
+    return freshnessReview(this.ctx, this, root, today)
   }
 }
 

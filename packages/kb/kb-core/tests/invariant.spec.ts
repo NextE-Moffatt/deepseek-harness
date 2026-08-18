@@ -37,6 +37,7 @@ describe('kb event invariants', () => {
       cardIds: ['rule-20250818-001' as CardId],
       sections: [{ name: 'rule-20250818-001', text: '标题：t\n适用条件：值班收到告警' }],
     })
+    session.append('kb/team-join', { id: 'rule-20250818-001' as CardId, path: '/team/cards/rule-20250818-001.md', status: 'pending' })
     await ctx.plugin(KbInvariant)
   })
 
@@ -61,6 +62,9 @@ describe('kb event invariants', () => {
     ['kb/injected blank section text', 'kb/injected', { pack: 'p', cardIds: ['a'], sections: [{ name: 'a', text: '' }] }, /section text must be a non-empty string/],
     ['kb/injected length mismatch', 'kb/injected', { pack: 'p', cardIds: ['a', 'b'], sections: [{ name: 'a', text: 't' }] }, /must have the same length/],
     ['kb/injected name/id drift', 'kb/injected', { pack: 'p', cardIds: ['a'], sections: [{ name: 'b', text: 't' }] }, /must equal the card ids in order/],
+    ['kb/team-join blank id', 'kb/team-join', { id: '', path: '/x', status: 'pending' }, /id must be a non-empty string/],
+    ['kb/team-join blank path', 'kb/team-join', { id: 'a-1', path: '', status: 'pending' }, /path must be a non-empty string/],
+    ['kb/team-join bad status', 'kb/team-join', { id: 'a-1', path: '/x', status: 'done' }, /status must be one of/],
   ])('rejects %s', async (_name, type, data, message) => {
     const ctx = await setup()
     expect(() => { ctx.emit('session/event', {} as Session, event(type as SessionEvent['type'], data)) }).toThrow(message)

@@ -153,9 +153,72 @@ ask_user_question 会暂停工具调用，直到当前 UI 提供方返回人类�
 
 ## `@deepseek-ai/dsh-kb-core`
 
+### `kb_archive`
+
+归档一张团队库卡片：ready / revived → archived（退场）。保鲜扫描会把"已过期且零引用"的卡片标为归档候选，人工确认后调用本工具。
+
+```json
+{
+  "type": "object",
+  "properties": {
+    "id": {
+      "type": "string",
+      "description": "团队库卡片 id"
+    }
+  },
+  "required": [
+    "id"
+  ]
+}
+```
+
+来源：[`packages/kb/kb-core/src/index.ts`](../packages/kb/kb-core/src/index.ts)
+
+### `kb_freshness`
+
+知识保鲜扫描：列出已过期与即将过期（默认 14 天内）的卡片，附热度与治理建议（复核续期/待复核/归档/复活候选）。过期且零引用的 ready 卡片建议归档；仍有引用的已归档卡片建议复活。
+
+```json
+{
+  "type": "object",
+  "properties": {}
+}
+```
+
+来源：[`packages/kb/kb-core/src/index.ts`](../packages/kb/kb-core/src/index.ts)
+
+### `kb_gate_check`
+
+第一道门（客观信号门）：检查一张个人库草稿卡片是否具备晋升团队库的条件——来源链接、可执行清单（应做/不应做）、非空客观信号证据。工具只做结构性核验（PASS/BLOCK + 原因）；证据的真实性由提交者负责并随工具调用记录。
+
+```json
+{
+  "type": "object",
+  "properties": {
+    "id": {
+      "type": "string",
+      "description": "个人库草稿卡片 id（如 rule-20250818-001）"
+    },
+    "evidence": {
+      "type": "array",
+      "description": "客观信号说明（上线记录/MR/事件单号/评审结论/复用次数），至少一项",
+      "items": {
+        "type": "string"
+      }
+    }
+  },
+  "required": [
+    "id",
+    "evidence"
+  ]
+}
+```
+
+来源：[`packages/kb/kb-core/src/index.ts`](../packages/kb/kb-core/src/index.ts)
+
 ### `kb_promote`
 
-晋升卡片状态（状态机：draft → pending → ready）。draft → pending 需要客观信号（上线/交付/关闭/复用）；pending → ready 表示已复核、可进引用池。
+晋升个人库卡片状态（状态机：draft → pending → ready）。draft → pending 需要客观信号（上线/交付/关闭/复用）；pending → ready 表示已复核、可进引用池。团队库卡片不适用：团队库状态变更请用 kb_review / kb_archive / kb_revive。
 
 ```json
 {
@@ -198,6 +261,57 @@ ask_user_question 会暂停工具调用，直到当前 UI 提供方返回人类�
     "id": {
       "type": "string",
       "description": "卡片唯一 id（如 rule-20250818-001）"
+    }
+  },
+  "required": [
+    "id"
+  ]
+}
+```
+
+来源：[`packages/kb/kb-core/src/index.ts`](../packages/kb/kb-core/src/index.ts)
+
+### `kb_review`
+
+第二道门（人复核）：复核一张团队库 pending 卡片。approved=true 时卡片进入 ready（引用池，可被团队知识包订阅注入）；approved=false 时不改变状态，卡片保持 pending 等待补充证据后再次复核。只有在人复核后再调用本工具。
+
+```json
+{
+  "type": "object",
+  "properties": {
+    "id": {
+      "type": "string",
+      "description": "团队库卡片 id（如 rule-20250818-001）"
+    },
+    "approved": {
+      "type": "boolean",
+      "description": "复核是否通过"
+    },
+    "note": {
+      "type": "string",
+      "description": "复核意见（可选）"
+    }
+  },
+  "required": [
+    "id",
+    "approved"
+  ]
+}
+```
+
+来源：[`packages/kb/kb-core/src/index.ts`](../packages/kb/kb-core/src/index.ts)
+
+### `kb_revive`
+
+复活一张已归档的团队库卡片：archived → revived（恢复为活跃状态）。保鲜扫描会把"仍有引用热度"的已归档卡片标为复活候选；revived 状态与 ready 不同，治理可区分恢复过的卡片。
+
+```json
+{
+  "type": "object",
+  "properties": {
+    "id": {
+      "type": "string",
+      "description": "团队库卡片 id"
     }
   },
   "required": [
@@ -266,6 +380,90 @@ ask_user_question 会暂停工具调用，直到当前 UI 提供方返回人类�
   "required": [
     "query"
   ]
+}
+```
+
+来源：[`packages/kb/kb-core/src/index.ts`](../packages/kb/kb-core/src/index.ts)
+
+### `kb_team_commit`
+
+提交团队库工作树变更（git add -A + commit）：把已复核的草稿落成团队库正式提交。这是"工具生成草稿 → 人复核 → 提交"流程的提交点；提交前先用 kb_team_status 复核变更内容。
+
+```json
+{
+  "type": "object",
+  "properties": {
+    "message": {
+      "type": "string",
+      "description": "提交说明（如：晋升告警处置标准 rule-20250818-001）"
+    }
+  },
+  "required": [
+    "message"
+  ]
+}
+```
+
+来源：[`packages/kb/kb-core/src/index.ts`](../packages/kb/kb-core/src/index.ts)
+
+### `kb_team_promote`
+
+晋升个人库草稿卡片到团队库（第一道门落地）：卡片进入团队库 cards/，状态变为 pending，等待第二道门复核。工具内部强制执行门禁规则（来源/清单/证据不满足则失败并列出原因）；写入后可用 kb_team_status 查看、kb_team_commit 提交。
+
+```json
+{
+  "type": "object",
+  "properties": {
+    "id": {
+      "type": "string",
+      "description": "个人库草稿卡片 id（如 rule-20250818-001）"
+    },
+    "evidence": {
+      "type": "array",
+      "description": "客观信号说明（上线记录/MR/事件单号/评审结论/复用次数），至少一项",
+      "items": {
+        "type": "string"
+      }
+    }
+  },
+  "required": [
+    "id",
+    "evidence"
+  ]
+}
+```
+
+来源：[`packages/kb/kb-core/src/index.ts`](../packages/kb/kb-core/src/index.ts)
+
+### `kb_team_read`
+
+按 id 读取一张团队库卡片（front matter + 正文），返回完整内容。
+
+```json
+{
+  "type": "object",
+  "properties": {
+    "id": {
+      "type": "string",
+      "description": "卡片唯一 id（如 rule-20250818-001）"
+    }
+  },
+  "required": [
+    "id"
+  ]
+}
+```
+
+来源：[`packages/kb/kb-core/src/index.ts`](../packages/kb/kb-core/src/index.ts)
+
+### `kb_team_status`
+
+查看团队库工作树状态（git status --porcelain）：哪些卡片/文档已改动未提交。人复核草稿后调用 kb_team_commit 提交。
+
+```json
+{
+  "type": "object",
+  "properties": {}
 }
 ```
 
@@ -368,7 +566,7 @@ ask_user_question 会暂停工具调用，直到当前 UI 提供方返回人类�
 
 来源：[`packages/kb/kb-core/src/index.ts`](../packages/kb/kb-core/src/index.ts)
 
-四个 kb 工具是知识库接缝的个人库消费方。kb_write 在 session workspace（kb/cards/{tier}/{id}.md）创建草稿卡片；kb_search 运行 FTS5 BM25，索引无法打开时显式降级为扫描模式；kb_promote 驱动晋升状态机（draft → pending → ready）。
+The four kb tools are the personal-library consumer of the knowledge-base seam. kb_write creates draft cards in the session workspace (kb/cards/{tier}/{id}.md); kb_search runs FTS5 BM25 with an explicit scan-mode degradation when the index cannot open; kb_promote drives the promotion state machine (draft → pending → ready).
 
 <a id="deepseek-aidsh-plan-mode"></a>
 

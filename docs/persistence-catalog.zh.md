@@ -451,6 +451,7 @@ export type SessionEvent<T extends SessionEventType = SessionEventType> = {
 
 <a id="hookresult--log-only"></a>
 
+
 #### `hook/result` — log-only
 
 ```ts persistence-catalog
@@ -489,7 +490,7 @@ export type SessionEvent<T extends SessionEventType = SessionEventType> = {
 }
 ```
 
-来源：[`packages/kb/kb-core/src/types.ts:125`](../packages/kb/kb-core/src/types.ts)
+来源：[`packages/kb/kb-core/src/types.ts:136`](../packages/kb/kb-core/src/types.ts)
 
 <a id="kbpromote--log-only"></a>
 
@@ -501,7 +502,25 @@ export type SessionEvent<T extends SessionEventType = SessionEventType> = {
 'kb/promote': { id: CardId; from: CardStatus; to: CardStatus; evidence?: string }
 ```
 
-来源：[`packages/kb/kb-core/src/types.ts:92`](../packages/kb/kb-core/src/types.ts)
+来源：[`packages/kb/kb-core/src/types.ts:132`](../packages/kb/kb-core/src/types.ts)
+
+<a id="kbteam-join--log-only"></a>
+
+#### `kb/team-join` — log-only
+
+```ts persistence-catalog
+/** A personal card entered the team library through the first gate: the
+ * card file now lives in the team repository at `path` with `status`
+ * (always `pending`), and the promotion transition itself is the paired
+ * `kb/promote` event. */
+'kb/team-join': {
+  id: CardId
+  path: string
+  status: CardStatus
+}
+```
+
+来源：[`packages/kb/kb-core/src/types.ts:145`](../packages/kb/kb-core/src/types.ts)
 
 <a id="kbwrite--log-only"></a>
 
@@ -520,7 +539,7 @@ export type SessionEvent<T extends SessionEventType = SessionEventType> = {
 }
 ```
 
-来源：[`packages/kb/kb-core/src/types.ts:82`](../packages/kb/kb-core/src/types.ts)
+来源：[`packages/kb/kb-core/src/types.ts:122`](../packages/kb/kb-core/src/types.ts)
 
 ### `llm/*`
 

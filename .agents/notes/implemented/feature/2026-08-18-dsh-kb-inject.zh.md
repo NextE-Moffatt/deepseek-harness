@@ -40,4 +40,4 @@ Status: implemented
 
 ## Consequences
 
-配置了包的部署，其每个会话的每个请求都会在 `kb:pack` section 中带上包内容——这是"注入即上下文"要的恒定每请求 token 成本。session-start 监听器做一次受库规模与包过滤约束的同步读库，记为已知限制。注入按"每会话每包一次"：同一会话内的新任务、会话开始后的库编辑都不会重新注入（重新注入属 govern/recap 里程碑）。resume 与 fork 从日志继承注入，回放仅凭 `kb/injected` 即可逐字节复现 `kb:pack` section。载荷的 `cardIds` 面向让里程碑 3 的记账无需解析渲染文本即可按卡片投影热度。包选择缺省排除已归档卡片，退休内容永不自动注入；显式 `status` 白名单整体覆盖该缺省。
+配置了包的部署，其每个会话的每个请求都会在 `kb:pack` section 中带上包内容——这是"注入即上下文"要的恒定每请求 token 成本。session-start 监听器做一次受库规模与包过滤约束的同步读库，记为已知限制。注入按"每会话每包一次"：同一会话内的新任务、会话开始后的库编辑都不会重新注入（重新注入属 govern/recap 里程碑）。resume 与 fork 从日志继承注入，回放仅凭 `kb/injected` 即可逐字节复现 `kb:pack` section。载荷的 `cardIds` 面向让遥测投影（[里程碑 3](2026-08-19-dsh-kb-milestone-3.zh.md) 落地）无需解析渲染文本即可按卡片投影热度。包选择缺省排除已归档卡片，退休内容永不自动注入；显式 `status` 白名单整体覆盖该缺省，里程碑 3 另加可选 `library` 白名单让包横跨两库。

@@ -99,12 +99,23 @@ function validateInjected(value: unknown, fail: InvariantFailure): void {
   }
 }
 
+/** Validate a `kb/team-join` payload: a non-empty card id, path, and a closed-enum status. */
+function validateTeamJoin(value: unknown, fail: InvariantFailure): void {
+  const data = value as Record<string, unknown>
+  if (typeof data['id'] !== 'string' || data['id'] === '') fail('kb/team-join id must be a non-empty string')
+  if (typeof data['path'] !== 'string' || data['path'] === '') fail('kb/team-join path must be a non-empty string')
+  if (typeof data['status'] !== 'string' || !CARD_STATUSES.includes(data['status'] as CardStatus)) {
+    fail(`kb/team-join status must be one of ${CARD_STATUSES.join(', ')}`)
+  }
+}
+
 /* jscpd:ignore-start -- package companions share replay and dispatch plumbing */
 /** Validate the package-owned event fields and ignore unrelated events. */
 function validateEvent(event: SessionEvent, fail: InvariantFailure): void {
   if (event.type === 'kb/write') validateWrite(event.data, fail)
   if (event.type === 'kb/promote') validatePromote(event.data, fail)
   if (event.type === 'kb/injected') validateInjected(event.data, fail)
+  if (event.type === 'kb/team-join') validateTeamJoin(event.data, fail)
 }
 
 /** Install validation for loaded and newly appended kb events. */

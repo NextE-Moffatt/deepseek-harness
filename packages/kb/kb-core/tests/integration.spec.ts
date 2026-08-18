@@ -1,5 +1,7 @@
+import { execFile } from 'node:child_process'
+import { promisify } from 'node:util'
 import { createUserMessage } from '@deepseek-ai/dsh-llm'
-import { mkdtemp, rm, readFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, rm, readFile, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
@@ -163,5 +165,125 @@ describe('kb tools through the agent loop', () => {
     const fold = kbFold(agent.session.events)
     expect(kbFold(replayed.events)).toBe(fold)
     expect(fold).toContain('## 知识包：告警处置')
+  })
+})
+
+describe('milestone-3 team chain through the agent loop', () => {
+  const execFileAsync = promisify(execFile)
+
+  async function makeTeamRepo(): Promise<string> {
+    const repo = await mkdtemp(join(tmpdir(), 'dsh-kb-loop-team-'))
+    workspaces.push(repo)
+    await execFileAsync('git', ['init', '-q', repo])
+    await execFileAsync('git', ['-C', repo, 'config', 'user.email', 'kb-test@example.com'])
+    await execFileAsync('git', ['-C', repo, 'config', 'user.name', 'kb test'])
+    return repo
+  }
+
+  /** A ready team card file seeded into the repository before the agent exists. */
+  const READY_TEAM_CARD = `---
+id: rule-20260818-100
+type: rule
+title: 团队告警处置基线
+库: team
+状态: ready
+适用条件: 值班收到团队告警
+来源: MR#1
+责任人: 李四
+有效期: 2026-12-31
+标签:
+  - 告警
+---
+
+## 核心结论
+
+按基线处置。
+
+## 应做
+
+- 按基线处置
+
+## 不应做
+
+- 私自变通
+`
+
+  it('team pack injects at session start; the loop drives gate → promote → review → commit, replayable from the log', async () => {
+    const teamRepo = await makeTeamRepo()
+    await mkdir(join(teamRepo, 'cards'))
+    await writeFile(join(teamRepo, 'cards', 'rule-20260818-100.md'), READY_TEAM_CARD, 'utf8')
+    await execFileAsync('git', ['-C', teamRepo, 'add', '-A'])
+    await execFileAsync('git', ['-C', teamRepo, 'commit', '-q', '-m', '种子卡片'])
+
+    const adapter = new MockAdapter([
+      (request) => {
+        // The team pack reached the first request through kb:pack.
+        expect(request.system).toContain('## 知识包：团队告警')
+        expect(request.system).toContain('### rule-20260818-100')
+        return toolCallResponse('loop-call-1', 'kb_write', {
+          tier: 'P2',
+          id: 'rule-20260818-200',
+          type: 'rule',
+          title: '新处置标准',
+          适用条件: '值班收到新告警',
+          核心结论: '先确认影响面再处置。',
+          应做: ['确认影响面'],
+          不应做: ['直接重启'],
+          来源: 'MR#42',
+          责任人: '张三',
+          标签: ['告警'],
+        }, 'Recording the card.')
+      },
+      toolCallResponse('loop-call-2', 'kb_gate_check', { id: 'rule-20260818-200', evidence: ['上线 MR#42'] }, 'Checking the gate.'),
+      toolCallResponse('loop-call-3', 'kb_team_promote', { id: 'rule-20260818-200', evidence: ['上线 MR#42'] }, 'Promoting to the team library.'),
+      toolCallResponse('loop-call-4', 'kb_review', { id: 'rule-20260818-200', approved: true, note: '复核通过' }, 'Reviewing the card.'),
+      toolCallResponse('loop-call-5', 'kb_team_commit', { message: '晋升 rule-20260818-200' }, 'Committing the team library.'),
+      textResponse('完成。'),
+    ])
+    const { ctx, workspace } = await harness(adapter, {
+      cardTtlDays: 7,
+      teamRepoPath: teamRepo,
+      teamWriteApproval: false,
+      packs: [{ name: '团队告警', tags: ['告警'], library: ['team'] }],
+    })
+
+    const agent = ctx.agentLoop.create(SessionId('it-kb-m3'), { provider: 'mock', model: 'mock' }, { cwd: workspace })
+    agent.followup(createUserMessage({ content: [{ type: 'text', text: '沉淀新规则并晋升团队库' }], source: { kind: 'user' } }))
+    await waitForIdle(ctx, agent)
+
+    const log = agent.session.events
+    // The team pack injected the seeded ready card at session start.
+    const injected = log.filter(event => event.type === 'kb/injected')
+    expect(injected).toHaveLength(1)
+    expect(injected[0]!.data.cardIds).toContain('rule-20260818-100')
+    expect(injected[0]!.data.cardIds).not.toContain('rule-20260818-200')
+
+    // The five tool calls all completed without error.
+    const results = log.filter(event => event.type === 'tool/result')
+    expect(results).toHaveLength(5)
+    for (const result of results) expect(result.data.message.content[0].isError).toBe(false)
+
+    // The team move and the review transition landed as events.
+    const teamJoin = findEvent(log, 'kb/team-join')
+    expect(teamJoin.data).toMatchObject({ id: 'rule-20260818-200', status: 'pending' })
+    expect(teamJoin.data.path).toContain('rule-20260818-200.md')
+    const promotes = log.filter((event): event is Extract<typeof event, { type: 'kb/promote' }> =>
+      event.type === 'kb/promote' && event.data.id === 'rule-20260818-200')
+    expect(promotes.map(event => event.data.to)).toEqual(['pending', 'ready'])
+
+    // The team repository holds the reviewed card and the commit.
+    const teamFile = await readFile(join(teamRepo, 'cards', 'rule-20260818-200.md'), 'utf8')
+    expect(teamFile).toContain('状态: ready')
+    expect(teamFile).toContain('库: team')
+    const { stdout: gitLog } = await execFileAsync('git', ['-C', teamRepo, 'log', '-n 1', '--oneline'])
+    expect(gitLog).toContain('晋升 rule-20260818-200')
+
+    // Replay: the log alone reconstructs the whole chain.
+    const replayed = Session.create(SessionId('it-kb-m3-replay'), log)
+    expect(kbFold(replayed.events)).toBe(kbFold(log))
+    const replayJoin = replayed.events.find(event => event.type === 'kb/team-join')
+    expect(replayJoin!.data).toEqual(teamJoin.data)
+    const replayInjected = replayed.events.filter(event => event.type === 'kb/injected')
+    expect(replayInjected).toHaveLength(1)
   })
 })

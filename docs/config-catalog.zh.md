@@ -853,6 +853,16 @@ export interface KbConfig {
   indexPath?: string
   /** Days added to today when a card's 有效期 is omitted (default 90). */
   cardTtlDays?: number
+  /** Team library git work tree path (absolute, or relative to the session workspace root); absent disables the team library. */
+  teamRepoPath?: string
+  /** Heat ledger path relative to the session workspace root (default `kb/.kb-heat.jsonl`). */
+  heatPath?: string
+  /** Days ahead of 有效期 that count as "expiring soon" in the freshness review (default 14). */
+  freshnessWarningDays?: number
+  /** Days between scheduled freshness scans; 0 disables the scheduler (default 0). */
+  freshnessIntervalDays?: number
+  /** Route team-library write tools through the approval `ask` gate (default true). */
+  teamWriteApproval?: boolean
   /** Knowledge packs injected at session start (default none). */
   packs?: KnowledgePack[]
 }
@@ -867,8 +877,10 @@ export interface KnowledgePack {
   name: string
   /** Filter: every listed tag must be present on the card. */
   tags?: readonly string[]
-  /** Filter: tier allowlist. */
+  /** Filter: tier allowlist (personal-library tiers). */
   tier?: readonly CardTier[]
+  /** Filter: library allowlist; when absent, cards from both libraries are eligible. */
+  library?: readonly CardLibrary[]
   /** Filter: status allowlist; when absent, `archived` cards are excluded by default. */
   status?: readonly CardStatus[]
   /** Maximum cards injected per session; no cap when absent. */
@@ -877,6 +889,9 @@ export interface KnowledgePack {
 
 /** Personal-library tiers, encoded as the card's directory: P0 Inbox, P1 project notes, P2 draft cards, P3 private experience. */
 export type CardTier = 'P0' | 'P1' | 'P2' | 'P3'
+
+/** Which library a card belongs to. Milestone 1 ships `personal`; `team` is the shared git repo (post-milestone-1). */
+export type CardLibrary = 'personal' | 'team'
 
 /**
  * Lifecycle states of the promotion pipeline. `draft` is the personal-library
@@ -887,7 +902,7 @@ export type CardTier = 'P0' | 'P1' | 'P2' | 'P3'
 export type CardStatus = 'draft' | 'pending' | 'ready' | 'archived' | 'revived'
 ```
 
-来源：[`packages/kb/kb-core/src/index.ts:47`](../packages/kb/kb-core/src/index.ts)
+Source: [`packages/kb/kb-core/src/index.ts:77`](../packages/kb/kb-core/src/index.ts)
 
 <a id="deepseek-aidsh-llm-deepseek"></a>
 

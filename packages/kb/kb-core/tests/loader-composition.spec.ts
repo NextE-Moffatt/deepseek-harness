@@ -4,21 +4,28 @@
 // flips the state → the kb/* events replay from the session log. The injection
 // block drives the agent/session-start extension point on the same composition
 // and asserts the kb/injected event, the kb:pack fold, and log replay.
+import { execFile } from 'node:child_process'
 import { chmod, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
+import { promisify } from 'node:util'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { afterEach, describe, expect, it } from 'vitest'
-import { Context } from '@deepseek-ai/cordis'
+import { Context, Service } from '@deepseek-ai/cordis'
 import Loader from '@deepseek-ai/cordis-plugin-loader'
 import Include from '@deepseek-ai/cordis-plugin-include'
 import { CallId } from '@deepseek-ai/dsh-llm'
-import SessionStore, { SESSION_FORMAT_VERSION, Session, SessionId } from '@deepseek-ai/dsh-session'
+import SessionStore, { Session, SessionId } from '@deepseek-ai/dsh-session'
 import AgentRegistry, { Inbox, emitAgentEvent } from '@deepseek-ai/dsh-agent'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import ToolRuntime from '@deepseek-ai/dsh-tools'
+import * as JobsLocal from '@deepseek-ai/dsh-jobs-local'
+import * as ToolJobs from '@deepseek-ai/dsh-tool-jobs'
+import type { ApprovalOutcome } from '@deepseek-ai/dsh-user-approval'
 import * as KbCore from '@deepseek-ai/dsh-kb-core'
+
+const execFileAsync = promisify(execFile)
 
 let root: string | undefined
 let workspace: string | undefined
@@ -34,16 +41,13 @@ afterEach(async () => {
   workspace = undefined
 })
 
-/** A fake parent Agent backed by a real session whose cwd is the workspace. */
+/** A fake parent Agent backed by a real store-entered session whose cwd is the workspace. */
 function agent(ctx: Context, cwd?: string): Agent {
   const scope = ctx.plugin(() => {})
   const id = SessionId('kb-loader-agent')
-  const session = Session.create(id, undefined, {
-    version: SESSION_FORMAT_VERSION,
-    id,
-    createdAt: Date.now(),
-    ...cwd === undefined ? {} : { cwd },
-  })
+  // Entered through the store so session/event dispatches reach global
+  // listeners (the telemetry projection consumes them).
+  const session = ctx.sessions.create(id, { meta: cwd === undefined ? {} : { cwd } })
   const value: Agent = {
     id, options: {}, session, inbox: new Inbox(session, { inserted: () => {}, discarded: () => {}, claimed: () => {} }),
     status: 'idle', ctx: scope.ctx,
@@ -59,7 +63,10 @@ function resultText(result: { content: { type: string; text?: string }[] }): str
   return result.content.filter(block => block.type === 'text').map(block => block.text).join('')
 }
 
-async function boot(configLines: readonly string[] = []): Promise<Context> {
+async function boot(
+  configLines: readonly string[] = [],
+  extra: { rows?: readonly string[]; modules?: ReadonlyArray<readonly [string, unknown]> } = {},
+): Promise<Context> {
   root = await mkdtemp(join(tmpdir(), 'dsh-kb-loader-'))
   workspace = await mkdtemp(join(tmpdir(), 'dsh-kb-workspace-'))
   const configPath = join(root, 'cordis.yml')
@@ -68,6 +75,7 @@ async function boot(configLines: readonly string[] = []): Promise<Context> {
     "- name: '@deepseek-ai/dsh-system-prompt'",
     "- name: '@deepseek-ai/dsh-tools'",
     "- name: '@deepseek-ai/dsh-session'",
+    ...extra.rows ?? [],
     "- name: '@deepseek-ai/dsh-kb-core'",
     ...configLines.length > 0 ? ['  config:', ...configLines] : [],
     '',
@@ -84,6 +92,7 @@ async function boot(configLines: readonly string[] = []): Promise<Context> {
     ['@deepseek-ai/dsh-tools', ToolRuntime],
     ['@deepseek-ai/dsh-session', SessionStore],
     ['@deepseek-ai/dsh-kb-core', KbCore],
+    ...extra.modules ?? [],
   ])
   ctx.loader.internal = {
     version: 'v2',
@@ -177,6 +186,10 @@ describe('kb-core real composition', () => {
       cardsPath: 'kb/my-cards',
       indexPath: 'kb/my-index.sqlite',
       cardTtlDays: 7,
+      heatPath: 'kb/.kb-heat.jsonl',
+      freshnessWarningDays: 14,
+      freshnessIntervalDays: 0,
+      teamWriteApproval: true,
       packs: [],
     })
     const description = ctx.tools.schemas().find(schema => schema.name === 'kb_write')!.description
@@ -311,5 +324,274 @@ describe('kb injection composition', () => {
     const sections = withoutAgent.sections.filter(section => section.name === 'kb:pack')
     expect(sections).toHaveLength(1)
     expect(sections[0]!.text).toBe('')
+  })
+})
+
+/**
+ * Milestone-3 acceptance composition: a real workspace plus a real team git
+ * repository, with the approval service and the jobs registry mounted. The
+ * chain — gate check → team promotion → review → commit → team-pack injection
+ * → heat projection → freshness review (tool and scheduled job) — runs through
+ * the real Loader, and the session log alone reconstructs it.
+ */
+describe('kb milestone-3 team composition', () => {
+  const TEAM_PACKS = [
+    '    packs:',
+    '      - name: 团队告警',
+    '        tags:',
+    '          - 告警',
+    '        library:',
+    '          - team',
+  ]
+
+  /** An approval service that grants every team write. */
+  class AllowAllApproval extends Service {
+    constructor(ctx: Context) {
+      super(ctx, 'approval')
+    }
+
+    async request(): Promise<ApprovalOutcome> {
+      return 'allowed-once'
+    }
+  }
+
+  async function makeTeamRepo(): Promise<string> {
+    const repo = await mkdtemp(join(tmpdir(), 'dsh-kb-team-composition-'))
+    await execFileAsync('git', ['init', '-q', repo])
+    await execFileAsync('git', ['-C', repo, 'config', 'user.email', 'kb-test@example.com'])
+    await execFileAsync('git', ['-C', repo, 'config', 'user.name', 'kb test'])
+    return repo
+  }
+
+  async function teamBoot(extraConfig: readonly string[] = []): Promise<{ ctx: Context; teamRepo: string }> {
+    const teamRepo = await makeTeamRepo()
+    const ctx = await boot([
+      `    teamRepoPath: ${teamRepo}`,
+      ...TEAM_PACKS,
+      ...extraConfig,
+    ], {
+      rows: [
+        "- name: 'test-allow-approval'",
+        "- name: '@deepseek-ai/dsh-jobs-local'",
+        "- name: '@deepseek-ai/dsh-tool-jobs'",
+      ],
+      modules: [
+        ['test-allow-approval', { default: AllowAllApproval }],
+        ['@deepseek-ai/dsh-jobs-local', JobsLocal],
+        ['@deepseek-ai/dsh-tool-jobs', ToolJobs],
+      ],
+    })
+    return { ctx, teamRepo }
+  }
+
+  it('dual gate → team pack injection → telemetry → freshness review, replayable from the log', async () => {
+    const { ctx, teamRepo } = await teamBoot(['    freshnessIntervalDays: 7'])
+    const caller = agent(ctx, workspace)
+
+    // 1. A personal draft plus an expired draft the freshness scan will flag.
+    const write = await ctx.tools.execute({
+      signal: new AbortController().signal,
+      callId: CallId('m3-write'),
+      name: 'kb_write',
+      arguments: {
+        tier: 'P2', type: 'rule', title: '告警处置标准',
+        适用条件: '值班收到告警', 核心结论: '先确认影响面。',
+        应做: ['确认影响面'], 不应做: ['直接重启'],
+        来源: 'MR#42', 责任人: '张三', 标签: ['告警'],
+      },
+      agent: caller,
+    })
+    expect(write.isError).toBe(false)
+    if (write.isError) throw new Error('m3 kb_write failed')
+    const cardId = (write.value as { id: string }).id
+    await ctx.tools.execute({
+      signal: new AbortController().signal,
+      callId: CallId('m3-write-stale'),
+      name: 'kb_write',
+      arguments: {
+        tier: 'P2', type: 'rule', title: '过期草稿',
+        适用条件: '历史场景', 核心结论: '已过期。',
+        应做: ['确认'], 不应做: ['忽略'],
+        责任人: '张三', 有效期: '2020-01-01',
+      },
+      agent: caller,
+    })
+
+    // 2. First gate: evidence → PASS.
+    const gate = await ctx.tools.execute({
+      signal: new AbortController().signal,
+      callId: CallId('m3-gate'),
+      name: 'kb_gate_check',
+      arguments: { id: cardId, evidence: ['上线 MR#42', '事件单#88 关闭'] },
+      agent: caller,
+    })
+    expect(gate.isError).toBe(false)
+    if (!gate.isError) expect((gate.value as { verdict: string }).verdict).toBe('PASS')
+
+    // 3. Team promotion through the approval gate: the card enters the team
+    // library as pending, the personal file moves, both events append.
+    const promote = await ctx.tools.execute({
+      signal: new AbortController().signal,
+      callId: CallId('m3-promote'),
+      name: 'kb_team_promote',
+      arguments: { id: cardId, evidence: ['上线 MR#42'] },
+      agent: caller,
+    })
+    expect(promote.isError).toBe(false)
+    if (promote.isError) throw new Error('m3 promotion denied')
+    const teamFile = join(teamRepo, 'cards', `${cardId}.md`)
+    expect(await readFile(teamFile, 'utf8')).toContain('状态: pending')
+    await expect(readFile(join(workspace!, 'kb/cards/P2', `${cardId}.md`), 'utf8')).rejects.toThrow()
+
+    // 4. Second gate: human review approves → ready (the reference pool).
+    const review = await ctx.tools.execute({
+      signal: new AbortController().signal,
+      callId: CallId('m3-review'),
+      name: 'kb_review',
+      arguments: { id: cardId, approved: true, note: '复核通过' },
+      agent: caller,
+    })
+    expect(review.isError).toBe(false)
+    if (!review.isError) expect(review.value).toMatchObject({ status: 'ready', changed: true })
+    expect(await readFile(teamFile, 'utf8')).toContain('状态: ready')
+
+    // 5. The draft → review → commit flow: status shows the change, commit
+    // lands it in the repository history.
+    const status = await ctx.tools.execute({
+      signal: new AbortController().signal,
+      callId: CallId('m3-status'),
+      name: 'kb_team_status',
+      arguments: {},
+      agent: caller,
+    })
+    expect(status.isError).toBe(false)
+    if (!status.isError) expect((status.value as { clean: boolean }).clean).toBe(false)
+    const commit = await ctx.tools.execute({
+      signal: new AbortController().signal,
+      callId: CallId('m3-commit'),
+      name: 'kb_team_commit',
+      arguments: { message: `晋升 ${cardId}` },
+      agent: caller,
+    })
+    expect(commit.isError).toBe(false)
+    if (commit.isError) throw new Error('m3 commit failed')
+    const { stdout: log } = await execFileAsync('git', ['-C', teamRepo, 'log', '-n 1', '--oneline'])
+    expect(log).toContain(`晋升 ${cardId}`)
+
+    // 6. Session start: the team pack injects the reference-pool card through
+    // the milestone-2 mechanism; kb/injected carries the team card id.
+    emitAgentEvent(ctx, caller, 'agent/session-start', { source: 'startup' })
+    const injected = caller.session.events.filter(event => event.type === 'kb/injected')
+    expect(injected).toHaveLength(1)
+    expect(injected[0]!.data.cardIds).toContain(cardId)
+    const fold = KbCore.foldInjected(caller.session.events)
+    expect(fold).toContain('## 知识包：团队告警')
+    expect(fold).toContain(`### ${cardId}`)
+
+    // 7. Telemetry: the ledger projects which card this session consumed
+    // (the projection append is asynchronous, so settle it before reading).
+    await new Promise(resolve => setTimeout(resolve, 50))
+    const heat = await ctx.kb.heat(workspace!)
+    const row = heat.find(entry => entry.cardId === cardId)
+    expect(row).toBeDefined()
+    expect(row!.sessions).toContain(caller.id)
+    expect(row!.packs).toContain('团队告警')
+
+    // 8. Freshness: the on-demand scan flags the expired draft, and the
+    // scheduled job (freshnessIntervalDays) produces the same review list.
+    const scan = await ctx.tools.execute({
+      signal: new AbortController().signal,
+      callId: CallId('m3-freshness'),
+      name: 'kb_freshness',
+      arguments: {},
+      agent: caller,
+    })
+    expect(scan.isError).toBe(false)
+    if (!scan.isError) {
+      const value = scan.value as { total: number; overdue: Array<{ id: string; recommend: string }> }
+      expect(value.total).toBe(1)
+      expect(value.overdue[0]!.recommend).toBe('archive-candidate')
+    }
+    const jobs = ctx.jobs.list(caller)
+    expect(jobs.some(job => job.kind === 'kb-freshness')).toBe(true)
+    const freshnessJob = jobs.find(job => job.kind === 'kb-freshness')!
+    const jobRead = ctx.jobs.read(freshnessJob.id, caller)
+    expect(jobRead.text).toContain('知识保鲜扫描')
+    expect(jobRead.text).toContain('[已过期]')
+
+    // 9. Replay: a fresh session seeded with the log reconstructs the whole
+    // chain — the write, the gate-1 promotion with its move, the review, and
+    // the team-pack injection.
+    const replayed = Session.create(SessionId('m3-replay'), caller.session.events)
+    const kbEvents = replayed.events.filter(event =>
+      event.type === 'kb/write' || event.type === 'kb/promote' || event.type === 'kb/team-join' || event.type === 'kb/injected',
+    )
+    expect(kbEvents.some(event =>
+      event.type === 'kb/team-join' && event.data.id === cardId && event.data.status === 'pending',
+    )).toBe(true)
+    expect(kbEvents.some(event =>
+      event.type === 'kb/promote' && event.data.id === cardId && event.data.to === 'ready',
+    )).toBe(true)
+    expect(kbEvents.some(event =>
+      event.type === 'kb/injected' && (event.data.cardIds as string[]).includes(cardId),
+    )).toBe(true)
+    expect(KbCore.foldInjected(replayed.events)).toBe(fold)
+  })
+
+  it('denies team writes when the approval service rejects and the personal side stays intact', async () => {
+    const teamRepo = await makeTeamRepo()
+    class DenyAllApproval extends Service {
+      constructor(ctx: Context) {
+        super(ctx, 'approval')
+      }
+
+      async request(): Promise<ApprovalOutcome> {
+        return 'rejected'
+      }
+    }
+    const denyCtx = await boot([
+      `    teamRepoPath: ${teamRepo}`,
+      ...TEAM_PACKS,
+    ], {
+      rows: [
+        "- name: 'test-deny-approval'",
+        "- name: '@deepseek-ai/dsh-jobs-local'",
+        "- name: '@deepseek-ai/dsh-tool-jobs'",
+      ],
+      modules: [
+        ['test-deny-approval', { default: DenyAllApproval }],
+        ['@deepseek-ai/dsh-jobs-local', JobsLocal],
+        ['@deepseek-ai/dsh-tool-jobs', ToolJobs],
+      ],
+    })
+    const denyCaller = agent(denyCtx, workspace)
+    const write = await denyCtx.tools.execute({
+      signal: new AbortController().signal,
+      callId: CallId('m3-deny-write'),
+      name: 'kb_write',
+      arguments: {
+        tier: 'P2', type: 'rule', title: '告警处置标准',
+        适用条件: '值班收到告警', 核心结论: '先确认影响面。',
+        应做: ['确认影响面'], 不应做: ['直接重启'],
+        来源: 'MR#42', 责任人: '张三', 标签: ['告警'],
+      },
+      agent: denyCaller,
+    })
+    expect(write.isError).toBe(false)
+    if (write.isError) throw new Error('m3 deny kb_write failed')
+    const cardId = (write.value as { id: string }).id
+    const promote = await denyCtx.tools.execute({
+      signal: new AbortController().signal,
+      callId: CallId('m3-deny-promote'),
+      name: 'kb_team_promote',
+      arguments: { id: cardId, evidence: ['上线'] },
+      agent: denyCaller,
+    })
+    expect(promote.isError).toBe(true)
+    expect(promote.isError ? promote.content.filter(b => b.type === 'text').map(b => b.text).join('') : '')
+      .toContain('rejected')
+    // The personal draft survives the denied promotion.
+    expect(await readFile(join(workspace!, 'kb/cards/P2', `${cardId}.md`), 'utf8')).toContain('状态: draft')
+    await denyCtx.fiber.dispose()
   })
 })

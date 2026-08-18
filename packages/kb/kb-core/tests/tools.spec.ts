@@ -73,7 +73,11 @@ describe('tool registration', () => {
   it('registers kb_write, kb_read, kb_search, kb_promote with the card-vocabulary schema', async () => {
     const ctx = await setup()
     const names = ctx.tools.schemas().map(schema => schema.name)
-    expect(names).toEqual(['kb_write', 'kb_read', 'kb_search', 'kb_promote'])
+    expect(names).toEqual([
+      'kb_write', 'kb_read', 'kb_search', 'kb_promote',
+      'kb_gate_check', 'kb_team_promote', 'kb_team_read', 'kb_review',
+      'kb_archive', 'kb_revive', 'kb_team_status', 'kb_team_commit', 'kb_freshness',
+    ])
     const write = ctx.tools.schemas().find(schema => schema.name === 'kb_write')!
     const props = (write.parameters as { properties: Record<string, unknown> }).properties
     expect(Object.keys(props).sort()).toEqual([
@@ -203,6 +207,13 @@ describe('KbService config validation', () => {
     ['blank cardsPath', { cardsPath: '' }, /cardsPath must be a non-empty relative path/],
     ['non-integer cardTtlDays', { cardTtlDays: 1.5 }, /cardTtlDays must be a positive integer/],
     ['zero cardTtlDays', { cardTtlDays: 0 }, /cardTtlDays must be a positive integer/],
+    ['blank teamRepoPath', { teamRepoPath: '' }, /teamRepoPath must be a non-empty path/],
+    ['non-string teamRepoPath', { teamRepoPath: 42 as unknown as string }, /teamRepoPath must be a non-empty path/],
+    ['heatPath with ..', { heatPath: '../up' }, /heatPath must be a non-empty relative path/],
+    ['blank heatPath', { heatPath: '' }, /heatPath must be a non-empty relative path/],
+    ['negative freshnessWarningDays', { freshnessWarningDays: -1 as unknown as number }, /freshnessWarningDays must be a non-negative integer/],
+    ['fractional freshnessIntervalDays', { freshnessIntervalDays: 1.5 as unknown as number }, /freshnessIntervalDays must be a non-negative integer/],
+    ['non-boolean teamWriteApproval', { teamWriteApproval: 'yes' as unknown as boolean }, /teamWriteApproval must be a boolean/],
   ])('fails loud on %s', async (_name, config, message) => {
     const ctx = new Context()
     await ctx.plugin(SessionStore)

@@ -32,6 +32,15 @@ export type CardStatus = 'draft' | 'pending' | 'ready' | 'archived' | 'revived'
 export type CardTier = 'P0' | 'P1' | 'P2' | 'P3'
 
 /**
+ * The three governance grades of the quality-grading mechanism (design §6):
+ * `verified` is a ready/revived card inside its 有效期; `pending` is a card
+ * awaiting verification; `verify` is a card that needs re-verification (a
+ * ready/revived card past its 有效期, or a retired one). The grade is derived
+ * from the card's status and expiry, never stored on the card.
+ */
+export type CardGrade = 'verified' | 'pending' | 'verify'
+
+/**
  * A knowledge card: Markdown body plus YAML front matter, one spec for both
  * libraries (§4.1/§4.2). Front-matter keys 库/状态/适用条件/来源/责任人/有效期/标签
  * are the fixed user-facing data format and mirror verbatim as property names;
@@ -79,8 +88,10 @@ export interface KnowledgePack {
   name: string
   /** Filter: every listed tag must be present on the card. */
   tags?: readonly string[]
-  /** Filter: tier allowlist. */
+  /** Filter: tier allowlist (personal-library tiers). */
   tier?: readonly CardTier[]
+  /** Filter: library allowlist; when absent, cards from both libraries are eligible. */
+  library?: readonly CardLibrary[]
   /** Filter: status allowlist; when absent, `archived` cards are excluded by default. */
   status?: readonly CardStatus[]
   /** Maximum cards injected per session; no cap when absent. */
@@ -126,6 +137,15 @@ declare module '@deepseek-ai/dsh-session/types' {
       pack: string
       cardIds: CardId[]
       sections: PackSection[]
+    }
+    /** A personal card entered the team library through the first gate: the
+     * card file now lives in the team repository at `path` with `status`
+     * (always `pending`), and the promotion transition itself is the paired
+     * `kb/promote` event. */
+    'kb/team-join': {
+      id: CardId
+      path: string
+      status: CardStatus
     }
   }
 }

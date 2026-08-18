@@ -800,6 +800,12 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
         parameters: [],
       },
       {
+        signature: 'teamRepoRoot(root: string): string',
+        description: 'The absolute team repository path for one workspace root (config-relative paths resolve against the root).',
+        parameters: [{ name: 'root', description: 'the session workspace root.' }],
+        returns: 'the absolute team repository path.',
+      },
+      {
         signature: 'async writeCard(root: string, input: WriteCardInput): Promise<CardWriteResult>',
         description: 'Write a new personal-library draft card, generating the id when omitted.',
         parameters: [{ name: 'root', description: 'the session workspace root.' }, { name: 'input', description: 'the card to write (values validated at the tool boundary).' }],
@@ -828,6 +834,84 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
         description: 'Run the incremental ingest over a source directory into the library at `options.root` (see importDir).',
         parameters: [{ name: 'options', description: 'import options.' }],
         returns: 'the import outcome.',
+      },
+      {
+        signature: 'async promoteToTeam(root: string, id: CardId, evidence: readonly string[]): Promise<{ card: Card; path: string }>',
+        description: 'The first gate\'s admission: promote a personal draft into the team library as `pending` (库: team). The gate rule from `evaluateGate` is enforced here — a BLOCK verdict throws before anything is written — so the promotion point, not the advisory `kb_gate_check` tool, is the enforcement. The personal file is removed after the team write succeeds.',
+        parameters: [{ name: 'root', description: 'the session workspace root.' }, { name: 'id', description: 'the personal draft card id.' }, { name: 'evidence', description: 'the objective signals (上线/交付/关闭/评审/复用).' }],
+        returns: 'the card in its new library plus the team file path.',
+      },
+      {
+        signature: 'async personalCard(root: string, id: CardId): Promise<CardFileInfo | undefined>',
+        description: 'Look up a card in the personal library, returning undefined when no tier holds it.',
+        parameters: [{ name: 'root', description: 'the session workspace root.' }, { name: 'id', description: 'the card id.' }],
+        returns: 'the card file info, or undefined.',
+      },
+      {
+        signature: 'async teamCard(root: string, id: CardId): Promise<TeamCardFileInfo | undefined>',
+        description: 'Look up a card in the team library, returning undefined when the library does not hold it (or is not configured).',
+        parameters: [{ name: 'root', description: 'the session workspace root.' }, { name: 'id', description: 'the card id.' }],
+        returns: 'the team card file info, or undefined.',
+      },
+      {
+        signature: 'async teamRead(root: string, id: CardId): Promise<TeamCardFileInfo>',
+        description: 'Read one team-library card.',
+        parameters: [{ name: 'root', description: 'the session workspace root.' }, { name: 'id', description: 'the card id.' }],
+        returns: 'the card file info; throws when the team library does not hold it.',
+      },
+      {
+        signature: 'async reviewTeam(root: string, id: CardId, approved: boolean): Promise<{ card: Card; changed: boolean }>',
+        description: 'The second gate (human review): an approved review transitions a team `pending` card to `ready` (the reference pool); a rejected review changes nothing and the card stays `pending` for more evidence. The caller (tool) appends `kb/promote` on approval.',
+        parameters: [{ name: 'root', description: 'the session workspace root.' }, { name: 'id', description: 'the team card id.' }, { name: 'approved', description: 'whether the reviewer approved the card.' }],
+        returns: 'the card and whether the state changed.',
+      },
+      {
+        signature: 'async archiveTeam(root: string, id: CardId): Promise<{ card: Card; from: CardStatus; path: string }>',
+        description: 'Archive a team card: `ready` or `revived` → `archived` (the state machine\'s retire edges; other states fail loud).',
+        parameters: [{ name: 'root', description: 'the session workspace root.' }, { name: 'id', description: 'the team card id.' }],
+        returns: 'the card in its new state, the previous state, and the file path.',
+      },
+      {
+        signature: 'async reviveTeam(root: string, id: CardId): Promise<{ card: Card; from: CardStatus; path: string }>',
+        description: 'Revive an archived team card: `archived` → `revived`.',
+        parameters: [{ name: 'root', description: 'the session workspace root.' }, { name: 'id', description: 'the team card id.' }],
+        returns: 'the card in its new state, the previous state, and the file path.',
+      },
+      {
+        signature: 'async teamStatus(root: string): Promise<string[]>',
+        description: 'The team work tree\'s porcelain status — what a commit would carry.',
+        parameters: [{ name: 'root', description: 'the session workspace root.' }],
+        returns: 'the non-empty porcelain lines.',
+      },
+      {
+        signature: 'async teamCommit(root: string, message: string): Promise<string>',
+        description: 'Stage and commit the team work tree (the human review point: review the status, then commit). Fails loud when nothing is staged or git rejects.',
+        parameters: [{ name: 'root', description: 'the session workspace root.' }, { name: 'message', description: 'the commit message.' }],
+        returns: 'the raw commit output.',
+      },
+      {
+        signature: 'async listTeamDocs(root: string): Promise<string[]>',
+        description: 'The wiki documents under the team library\'s `docs/`, repository-relative.',
+        parameters: [{ name: 'root', description: 'the session workspace root.' }],
+        returns: 'the sorted doc paths.',
+      },
+      {
+        signature: 'async readTeamDoc(root: string, docPath: string): Promise<string>',
+        description: 'Read one wiki document.',
+        parameters: [{ name: 'root', description: 'the session workspace root.' }, { name: 'docPath', description: 'the repository-relative doc path (`docs/...`).' }],
+        returns: 'the document text.',
+      },
+      {
+        signature: 'async heat(root: string): Promise<HeatRow[]>',
+        description: 'The workspace\'s aggregated heat ledger: which cards were consumed by which sessions, projected from `kb/injected` events (see HeatLedger).',
+        parameters: [{ name: 'root', description: 'the session workspace root.' }],
+        returns: 'the per-card heat rows, card-id ascending.',
+      },
+      {
+        signature: 'freshnessReview(root: string, today?: string): Promise<FreshnessReview>',
+        description: 'The freshness pending-review list for one workspace (see freshnessReview).',
+        parameters: [{ name: 'root', description: 'the session workspace root.' }, { name: 'today', description: 'the reference date `YYYY-MM-DD` (defaults to today, local).' }],
+        returns: 'the review list.',
       },
     ],
   },
@@ -2794,6 +2878,10 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export interface CardFileInfo {\n    card: Card;\n    tier: CardTier;\n    path: string;\n    mtime: number;\n    size: number;\n}',
   },
   {
+    name: 'CardGrade',
+    declaration: 'export type CardGrade = \'verified\' | \'pending\' | \'verify\';',
+  },
+  {
     name: 'CardId',
     declaration: 'export type CardId = Branded<\'CardId\'>;',
   },
@@ -3126,6 +3214,14 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export interface FinishReasonMap {\n    \'stop\': {\n        kind: \'stop\';\n    };\n    \'tool-calls\': {\n        kind: \'tool-calls\';\n    };\n    \'max-tokens\': {\n        kind: \'max-tokens\';\n    };\n    \'aborted\': {\n        kind: \'aborted\';\n        failure: LlmFailure;\n    };\n    \'error\': {\n        kind: \'error\';\n        failure: LlmFailure;\n    };\n}',
   },
   {
+    name: 'FreshnessRecommendation',
+    declaration: 'export type FreshnessRecommendation = \'renew\' | \'review\' | \'archive-candidate\' | \'revive-candidate\';',
+  },
+  {
+    name: 'FreshnessReview',
+    declaration: 'export interface FreshnessReview {\n    overdue: ReviewEntry[];\n    expiringSoon: ReviewEntry[];\n    total: number;\n}',
+  },
+  {
     name: 'FsDirEntry',
     declaration: 'export interface FsDirEntry {\n    name: string;\n    type: \'file\' | \'directory\' | \'other\';\n    target: FsTarget;\n    version?: FsVersion;\n    size?: number;\n}',
   },
@@ -3208,6 +3304,10 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'GoalView',
     declaration: 'export interface GoalView extends GoalSnapshot {\n    readonly roundsStarted: number;\n    readonly createdAt: number;\n    readonly updatedAt: number;\n    readonly activation: GoalActivation;\n}',
+  },
+  {
+    name: 'HeatRow',
+    declaration: 'export interface HeatRow {\n    cardId: CardId;\n    count: number;\n    lastAt: string;\n    sessions: string[];\n    packs: string[];\n}',
   },
   {
     name: 'ImageAttachmentLimits',
@@ -3335,7 +3435,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'KnowledgePack',
-    declaration: 'export interface KnowledgePack {\n    name: string;\n    tags?: readonly string[];\n    tier?: readonly CardTier[];\n    status?: readonly CardStatus[];\n    limit?: number;\n}',
+    declaration: 'export interface KnowledgePack {\n    name: string;\n    tags?: readonly string[];\n    tier?: readonly CardTier[];\n    library?: readonly CardLibrary[];\n    status?: readonly CardStatus[];\n    limit?: number;\n}',
   },
   {
     name: 'KvFacet',
@@ -3703,7 +3803,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'ResolvedKbConfig',
-    declaration: 'export interface ResolvedKbConfig {\n    cardsPath: string;\n    indexPath: string;\n    cardTtlDays: number;\n    packs: KnowledgePack[];\n}',
+    declaration: 'export interface ResolvedKbConfig {\n    cardsPath: string;\n    indexPath: string;\n    cardTtlDays: number;\n    teamRepoPath?: string;\n    heatPath: string;\n    freshnessWarningDays: number;\n    freshnessIntervalDays: number;\n    teamWriteApproval: boolean;\n    packs: KnowledgePack[];\n}',
   },
   {
     name: 'ResolvedNormalRetryPolicy',
@@ -3728,6 +3828,10 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'ResumeAgentOptions',
     declaration: 'export interface ResumeAgentOptions {\n    readonly resumeSessionId: SessionId;\n    readonly agentOptions?: AgentOptions;\n    readonly signal?: AbortSignal;\n    readonly setup?: AgentSetup;\n}',
+  },
+  {
+    name: 'ReviewEntry',
+    declaration: 'export interface ReviewEntry {\n    id: string;\n    title: string;\n    library: CardLibrary;\n    status: CardStatus;\n    grade: CardGrade;\n    有效期: string;\n    daysLeft: number;\n    heat: number;\n    recommend: FreshnessRecommendation;\n}',
   },
   {
     name: 'RpcError',
@@ -4356,6 +4460,10 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'TableValueOf',
     declaration: 'export type TableValueOf<S extends DomainSpec, N extends keyof S[\'tables\']> = S[\'tables\'][N] extends DomainTableSpec<string, infer V> ? V : never;',
+  },
+  {
+    name: 'TeamCardFileInfo',
+    declaration: 'export interface TeamCardFileInfo {\n    card: Card;\n    path: string;\n    mtime: number;\n    size: number;\n}',
   },
   {
     name: 'TerminalBackend',

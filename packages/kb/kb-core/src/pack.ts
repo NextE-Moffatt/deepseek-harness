@@ -7,9 +7,8 @@
  */
 
 import type { SessionEvent } from '@deepseek-ai/dsh-session'
-import { CARD_STATUSES, CARD_TIERS } from './card.ts'
-import type { CardFileInfo } from './store.ts'
-import type { Card, CardStatus, KnowledgePack, PackSection } from './types.ts'
+import { CARD_LIBRARIES, CARD_STATUSES, CARD_TIERS } from './card.ts'
+import type { Card, CardStatus, CardTier, KnowledgePack, PackSection } from './types.ts'
 
 /** The `kb:pack` prompt-section name; the one model-visible face of injection. */
 export const KB_PACK_SECTION = 'kb:pack'
@@ -18,7 +17,17 @@ export const KB_PACK_SECTION = 'kb:pack'
 export const KB_PACK_SECTION_ORDER = 60
 
 /** Pack-level config keys, for the unknown-key rejection. */
-const PACK_KEYS = ['name', 'tags', 'tier', 'status', 'limit'] as const
+const PACK_KEYS = ['name', 'tags', 'tier', 'library', 'status', 'limit'] as const
+
+/** One library entry the pack selection consumes: a card plus its location. */
+export interface PackEntry {
+  /** The parsed card. */
+  card: Card
+  /** Personal-library tier; undefined for team cards (team cards have no tiers). */
+  tier?: CardTier
+  /** Absolute card file path. */
+  path: string
+}
 
 /** Whether a value is a non-empty string. */
 function isNonEmptyString(value: unknown): value is string {
@@ -41,6 +50,7 @@ function resolvePack(value: unknown, index: number): KnowledgePack {
   }
   const tags = resolveStringList(pack['tags'], index, 'tags')
   const tier = resolveEnums(pack['tier'], index, 'tier', CARD_TIERS)
+  const library = resolveEnums(pack['library'], index, 'library', CARD_LIBRARIES)
   const status = resolveEnums(pack['status'], index, 'status', CARD_STATUSES)
   let limit: number | undefined
   if (pack['limit'] !== undefined) {
@@ -54,6 +64,7 @@ function resolvePack(value: unknown, index: number): KnowledgePack {
     name: name.trim(),
     ...tags === undefined ? {} : { tags },
     ...tier === undefined ? {} : { tier },
+    ...library === undefined ? {} : { library },
     ...status === undefined ? {} : { status },
     ...limit === undefined ? {} : { limit },
   }
@@ -111,9 +122,10 @@ export function resolvePacks(value: unknown): KnowledgePack[] {
 const DEFAULT_EXCLUDED_STATUS: CardStatus = 'archived'
 
 /** Whether one card entry passes a pack's filters. */
-function passesPackFilters(entry: CardFileInfo, pack: KnowledgePack): boolean {
+function passesPackFilters(entry: PackEntry, pack: KnowledgePack): boolean {
   if (pack.tags !== undefined && !pack.tags.every(tag => entry.card.标签.includes(tag))) return false
-  if (pack.tier !== undefined && !pack.tier.includes(entry.tier)) return false
+  if (pack.tier !== undefined && (entry.tier === undefined || !pack.tier.includes(entry.tier))) return false
+  if (pack.library !== undefined && !pack.library.includes(entry.card.库)) return false
   if (pack.status !== undefined) {
     if (!pack.status.includes(entry.card.状态)) return false
   } else if (entry.card.状态 === DEFAULT_EXCLUDED_STATUS) {
@@ -124,13 +136,14 @@ function passesPackFilters(entry: CardFileInfo, pack: KnowledgePack): boolean {
 
 /**
  * Select the cards one pack subscribes to: filter by tags (every listed tag),
- * tier allowlist, and status allowlist (default excludes `archived`), sort by
- * card id for determinism, and cap at the pack's limit.
- * @param entries - the parsed library.
+ * tier allowlist (personal tiers only), library allowlist, and status
+ * allowlist (default excludes `archived`), sort by card id for determinism,
+ * and cap at the pack's limit.
+ * @param entries - the parsed libraries (personal entries carry a tier; team entries do not).
  * @param pack - the subscribed pack.
  * @returns the selected entries, id-ascending.
  */
-export function selectPackCards(entries: readonly CardFileInfo[], pack: KnowledgePack): CardFileInfo[] {
+export function selectPackCards(entries: readonly PackEntry[], pack: KnowledgePack): PackEntry[] {
   const selected = entries
     .filter(entry => passesPackFilters(entry, pack))
     .sort((left, right) => left.card.id.localeCompare(right.card.id))
