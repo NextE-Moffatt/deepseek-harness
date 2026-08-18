@@ -790,6 +790,48 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
     ],
   },
   {
+    key: 'kb',
+    summary: '`ctx.kb`: owns the personal library seam — card write/read, promotion, search, and incremental ingest — plus the milestone-1 tools.',
+    description: '`ctx.kb`: owns the personal library seam — card write/read, promotion, search, and incremental ingest — plus the milestone-1 tools.',
+    methods: [
+      {
+        signature: 'readonly config: ResolvedKbConfig',
+        description: 'The resolved configuration.',
+        parameters: [],
+      },
+      {
+        signature: 'async writeCard(root: string, input: WriteCardInput): Promise<CardWriteResult>',
+        description: 'Write a new personal-library draft card, generating the id when omitted.',
+        parameters: [{ name: 'root', description: 'the session workspace root.' }, { name: 'input', description: 'the card to write (values validated at the tool boundary).' }],
+        returns: 'the written card, tier, and absolute path.',
+      },
+      {
+        signature: 'async readCard(root: string, id: CardId): Promise<CardFileInfo>',
+        description: 'Read one card by id across all tiers.',
+        parameters: [{ name: 'root', description: 'the session workspace root.' }, { name: 'id', description: 'the card id.' }],
+        returns: 'the card file info; throws when no tier holds the id.',
+      },
+      {
+        signature: 'async search(root: string, request: SearchRequest): Promise<SearchOutcome>',
+        description: 'Search one library: FTS5 BM25 with structured filters when the index is available, otherwise a deterministic full-library scan with an explicit `mode: \'scan\'` note. Results are always real card files.',
+        parameters: [{ name: 'root', description: 'the session workspace root.' }, { name: 'request', description: 'the retrieval request.' }],
+        returns: 'the retrieval outcome with its mode.',
+      },
+      {
+        signature: 'async promote(root: string, id: CardId, target: CardStatus, evidence?: string): Promise<PromoteResult>',
+        description: 'Apply a promotion transition: assert the state machine, rewrite the card file, and return the new state. The caller (tool) appends `kb/promote`.',
+        parameters: [{ name: 'root', description: 'the session workspace root.' }, { name: 'id', description: 'the card id.' }, { name: 'target', description: 'the requested next state (promotion subset: `pending` or `ready`).' }, { name: 'evidence', description: 'optional objective signal.' }],
+        returns: 'the card in its new state plus the transition.',
+      },
+      {
+        signature: 'importDir(options: ImportOptions): Promise<IngestResult>',
+        description: 'Run the incremental ingest over a source directory into the library at `options.root` (see importDir).',
+        parameters: [{ name: 'options', description: 'import options.' }],
+        returns: 'the import outcome.',
+      },
+    ],
+  },
+  {
     key: 'llm',
     summary: 'The abstract `llm` service: an adapter registry plus a streaming model-call API, interceptable via the `llm/stream` waterfall.',
     description: 'The abstract `llm` service: an adapter registry plus a streaming model-call API, interceptable via the `llm/stream` waterfall.',
@@ -2744,6 +2786,38 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export interface CancelOptions {\n    keepInbox?: boolean | undefined;\n}',
   },
   {
+    name: 'Card',
+    declaration: 'export interface Card {\n    id: CardId;\n    type: CardType;\n    title: string;\n    库: CardLibrary;\n    状态: CardStatus;\n    适用条件: string;\n    核心结论: string;\n    应做: string[];\n    不应做: string[];\n    反例?: string;\n    来源?: string;\n    责任人: string;\n    有效期: string;\n    标签: string[];\n}',
+  },
+  {
+    name: 'CardFileInfo',
+    declaration: 'export interface CardFileInfo {\n    card: Card;\n    tier: CardTier;\n    path: string;\n    mtime: number;\n    size: number;\n}',
+  },
+  {
+    name: 'CardId',
+    declaration: 'export type CardId = Branded<\'CardId\'>;',
+  },
+  {
+    name: 'CardLibrary',
+    declaration: 'export type CardLibrary = \'personal\' | \'team\';',
+  },
+  {
+    name: 'CardStatus',
+    declaration: 'export type CardStatus = \'draft\' | \'pending\' | \'ready\' | \'archived\' | \'revived\';',
+  },
+  {
+    name: 'CardTier',
+    declaration: 'export type CardTier = \'P0\' | \'P1\' | \'P2\' | \'P3\';',
+  },
+  {
+    name: 'CardType',
+    declaration: 'export type CardType = \'rule\' | \'case\' | \'howto\' | \'decision\';',
+  },
+  {
+    name: 'CardWriteResult',
+    declaration: 'export interface CardWriteResult {\n    card: Card;\n    tier: CardTier;\n    path: string;\n}',
+  },
+  {
     name: 'ClientResponse',
     declaration: 'export interface ClientResponse {\n    type: \'client-response\';\n    rpcId: RpcId;\n    result: RpcResult<unknown>;\n}',
   },
@@ -3152,6 +3226,10 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export type ImageMediaType = \'image/png\' | \'image/jpeg\' | \'image/webp\' | \'image/gif\';',
   },
   {
+    name: 'ImportOptions',
+    declaration: 'export interface ImportOptions {\n    root: string;\n    sourceDir: string;\n    tier: CardTier;\n}',
+  },
+  {
     name: 'Inbox',
     declaration: 'export class Inbox {\n    constructor(private readonly session: Session, private readonly notifications: InboxNotifications);\n    get nextTurn(): readonly UserMessage[];\n    get nextStep(): readonly UserMessage[];\n    get hasPending(): boolean;\n    clear(): void;\n    claim(target: InboxTarget, turn: number): UserMessage[];\n    append(target: InboxTarget, message: UserMessage): void;\n    prepend(target: InboxTarget, message: UserMessage): void;\n    replace(messageId: MessageId, newMessage: UserMessage): boolean;\n    remove(messageId: MessageId): boolean;\n    splice(target: InboxTarget, start: number, deleteCount: number, inserted: UserMessage[]): UserMessage[];\n}',
   },
@@ -3162,6 +3240,10 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'InboxTarget',
     declaration: 'export type InboxTarget = \'next-turn\' | \'next-step\';',
+  },
+  {
+    name: 'IngestResult',
+    declaration: 'export interface IngestResult {\n    imported: CardId[];\n    skipped: number;\n    skippedRaw: number;\n}',
   },
   {
     name: 'InvariantFailure',
@@ -3540,6 +3622,10 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export interface ProjectionSnapshot {\n    asOfSeq: number;\n    values: Partial<SessionProjectionMap>;\n}',
   },
   {
+    name: 'PromoteResult',
+    declaration: 'export interface PromoteResult {\n    card: Card;\n    from: CardStatus;\n    to: CardStatus;\n    evidence?: string;\n    path: string;\n}',
+  },
+  {
     name: 'PromptAssembly',
     declaration: 'export interface PromptAssembly {\n    sections: AssembledSection[];\n    contexts: AssembledContext[];\n    tools: ToolSchema[];\n    variables: Record<string, string | undefined>;\n}',
   },
@@ -3610,6 +3696,10 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'ResolvedCredential',
     declaration: 'export interface ResolvedCredential {\n    value: string;\n    source: string;\n}',
+  },
+  {
+    name: 'ResolvedKbConfig',
+    declaration: 'export interface ResolvedKbConfig {\n    cardsPath: string;\n    indexPath: string;\n    cardTtlDays: number;\n}',
   },
   {
     name: 'ResolvedNormalRetryPolicy',
@@ -3712,6 +3802,10 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export interface SearchFileMatches {\n    path: string;\n    matches: SearchLineMatch[];\n}',
   },
   {
+    name: 'SearchHit',
+    declaration: 'export interface SearchHit {\n    id: CardId;\n    title: string;\n    type: CardType;\n    status: CardStatus;\n    tier: CardTier;\n    path: string;\n    适用条件: string;\n    标签: string[];\n    score: number;\n}',
+  },
+  {
     name: 'SearchLineMatch',
     declaration: 'export interface SearchLineMatch {\n    lineNumber: number;\n    line: string;\n}',
   },
@@ -3720,8 +3814,16 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export interface SearchMatchesResultView {\n    card: \'search\';\n    shape: \'matches\';\n    title?: string;\n    files: SearchFileMatches[];\n    truncated: boolean;\n    total: number;\n}',
   },
   {
+    name: 'SearchOutcome',
+    declaration: 'export interface SearchOutcome {\n    mode: \'fts\' | \'scan\';\n    total: number;\n    hits: SearchHit[];\n    note?: string;\n}',
+  },
+  {
     name: 'SearchPathsResultView',
     declaration: 'export interface SearchPathsResultView {\n    card: \'search\';\n    shape: \'paths\';\n    title?: string;\n    paths: string[];\n    truncated: boolean;\n    total: number;\n}',
+  },
+  {
+    name: 'SearchRequest',
+    declaration: 'export interface SearchRequest {\n    query: string;\n    type?: CardType;\n    status?: CardStatus;\n    tier?: CardTier;\n    tags?: readonly string[];\n    limit: number;\n}',
   },
   {
     name: 'SearchResultView',
@@ -4654,6 +4756,10 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'WorkflowStopReason',
     declaration: 'export type WorkflowStopReason = \'completed\' | \'cancelled\' | \'error\';',
+  },
+  {
+    name: 'WriteCardInput',
+    declaration: 'export interface WriteCardInput {\n    tier: CardTier;\n    id?: CardId;\n    type: CardType;\n    title: string;\n    适用条件: string;\n    核心结论: string;\n    应做: string[];\n    不应做: string[];\n    反例?: string;\n    来源?: string;\n    责任人: string;\n    有效期?: string;\n    标签: string[];\n}',
   },
 ]
 

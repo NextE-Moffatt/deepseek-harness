@@ -472,6 +472,39 @@ export type SessionEvent<T extends SessionEventType = SessionEventType> = {
 
 来源：[`packages/hooks/hook-protocol/src/types.ts:31`](../packages/hooks/hook-protocol/src/types.ts)
 
+### `kb/*`
+
+<a id="kbpromote--log-only"></a>
+
+#### `kb/promote` — log-only
+
+```ts persistence-catalog
+/** A card's lifecycle state transitioned from `from` to `to` through the
+ * promotion state machine; `evidence` carries the optional objective signal. */
+'kb/promote': { id: CardId; from: CardStatus; to: CardStatus; evidence?: string }
+```
+
+来源：[`packages/kb/kb-core/src/types.ts:92`](../packages/kb/kb-core/src/types.ts)
+
+<a id="kbwrite--log-only"></a>
+
+#### `kb/write` — log-only
+
+```ts persistence-catalog
+/** A card file was written by `kb_write` (or re-imported with a session
+ * attached); the card is reconstructable from the file at `path`. */
+'kb/write': {
+  id: CardId
+  library: CardLibrary
+  tier: CardTier
+  status: CardStatus
+  title: string
+  path: string
+}
+```
+
+来源：[`packages/kb/kb-core/src/types.ts:82`](../packages/kb/kb-core/src/types.ts)
+
 ### `llm/*`
 
 <a id="llmretry--log-only"></a>

@@ -19,6 +19,7 @@
 | --- | --- | --- | --- | --- | --- |
 | `@deepseek-ai/dsh-tool-ask-user` | `ask_user_question` | `ctx.tools`、`ctx.userQuestions` | `tool/call`、`tool/result after a UI/provider answers the question` | - | ask_user_question 会暂停工具调用，直到当前 UI 提供方返回人类答案。 |
 | `@deepseek-ai/dsh-tools` | `run_code` | `ctx.tools`、`ctx.codeRuntime (execution time)`、`ctx.systemPrompt` | `tool/call`、`one tool/code-dispatch-start + tool/code-dispatch pair per bridged sub-call`、`tool/result` | - | 在 `mode: code`／`mode: both` 下，它由工具注册表所有，作为可过滤能力层之外的保留传输机制（参见 Code Mode Agent Note）。在 `code` 下，它是注册表对协议格式（wire format）的唯一贡献；其他可见能力在使用已加载运行时语言生成的 SDK 章节中声明。程序通过 binding 调用这些能力，调用按照原生并发约定调度：启动顺序和策略遵循提交顺序，并发安全的函数体最多重叠执行 `maxParallelSubCalls` 个。调用会重新进入完整且受守卫保护的工具流水线，并将每个嵌套执行关联到此外层结果。 |
+| `@deepseek-ai/dsh-kb-core` | `kb_promote`、`kb_read`、`kb_search`、`kb_write` | `ctx.tools`、`ctx.systemPrompt`、`a calling Agent with a session workspace (execution time)` | `tool/call`、`kb/write`、`kb/promote`、`tool/result` | - | 四个 kb 工具是知识库接缝的个人库消费方。kb_write 在 session workspace（kb/cards/{tier}/{id}.md）创建草稿卡片；kb_search 运行 FTS5 BM25，索引无法打开时显式降级为扫描模式；kb_promote 驱动晋升状态机（draft → pending → ready）。 |
 | `@deepseek-ai/dsh-plan-mode` | `exit_plan_mode` | `ctx.tools`、`ctx.systemPrompt`、`ctx.userQuestions (execution time, opportunistic)` | `tool/call`、`plan/mode inactive on an approved review`、`tool/result` | - | 规划未激活时，exit_plan_mode 仍保留在面向模型的 schema 中，这样状态转换不会在规划策略变更之外额外造成工具目录变动。其执行路径会拒绝规划模式之外的调用；在规划模式下，它通过用户交互 seam 提交计划（批准／根据反馈继续规划），批准后会在步骤边界记录规划模式已停用。 |
 | `@deepseek-ai/dsh-tool-bash` | `bash` | `ctx.tools`、`ctx.shell`、`ctx.systemPrompt`、`ctx.shellEnv`、`ctx.jobs at call time for run_in_background` | `tool/call`、`tool/result` | - | bash 工具是 bash 执行器 seam 面向模型的消费方。使用 `run_in_background` 的运行会注册到通用 `ctx.jobs` 运行时，并通过 `job_*` 工具（来自 `@deepseek-ai/dsh-tool-jobs`）收集／停止；禁用 `enableRunInBackground` 配置（默认为 true）后，该参数会被完全移除。 |
 | `@deepseek-ai/dsh-tool-pwsh` | `pwsh` | `ctx.tools`、`ctx.shell`、`ctx.systemPrompt`、`ctx.shellEnv`、`ctx.jobs at call time for run_in_background` | `tool/call`、`tool/result` | - | pwsh 工具是 Windows 组合中 bash 执行器 seam 的 PowerShell 方言消费方（由 `@deepseek-ai/dsh-pwsh-local` 等 PowerShell 执行器为 `ctx.shell` 提供后端）；除沙箱接口外，它逐项对应 bash 工具调用。使用 `run_in_background` 的运行会注册到通用 `ctx.jobs` 运行时，并通过 `job_*` 工具收集／停止；托管的 `DSH_*` 环境来自 `@deepseek-ai/dsh-shell-env`。每次调用都在新进程中运行，不使用持久 PTY 会话。路径采用原生 `C:\...` 形式，变量采用 `$env:NAME`。 |
@@ -147,6 +148,227 @@ ask_user_question 会暂停工具调用，直到当前 UI 提供方返回人类�
 来源：[`packages/core/tools/src/code-mode.ts`](../packages/core/tools/src/code-mode.ts)
 
 在 `mode: code`／`mode: both` 下，它由工具注册表所有，作为可过滤能力层之外的保留传输机制（参见 Code Mode Agent Note）。在 `code` 下，它是注册表对协议格式的唯一贡献；其他可见能力在使用已加载运行时语言生成的 SDK 章节中声明。程序通过 binding 调用这些能力，调用按照原生并发约定调度：启动顺序和策略遵循提交顺序，并发安全的函数体最多重叠执行 `maxParallelSubCalls` 个。调用会重新进入完整且受守卫保护的工具流水线，并将每个嵌套执行关联到此外层结果。
+
+<a id="deepseek-aidsh-kb-core"></a>
+
+## `@deepseek-ai/dsh-kb-core`
+
+### `kb_promote`
+
+晋升卡片状态（状态机：draft → pending → ready）。draft → pending 需要客观信号（上线/交付/关闭/复用）；pending → ready 表示已复核、可进引用池。
+
+```json
+{
+  "type": "object",
+  "properties": {
+    "id": {
+      "type": "string",
+      "description": "卡片唯一 id（如 rule-20250818-001）"
+    },
+    "target": {
+      "type": "string",
+      "description": "目标状态：pending（待复核）或 ready（复核通过）",
+      "enum": [
+        "pending",
+        "ready"
+      ]
+    },
+    "evidence": {
+      "type": "string",
+      "description": "客观信号说明（上线记录/MR/事件单号/复用次数）"
+    }
+  },
+  "required": [
+    "id",
+    "target"
+  ]
+}
+```
+
+来源：[`packages/kb/kb-core/src/index.ts`](../packages/kb/kb-core/src/index.ts)
+
+### `kb_read`
+
+按 id 读取一张卡片（front matter + 正文），返回完整内容。
+
+```json
+{
+  "type": "object",
+  "properties": {
+    "id": {
+      "type": "string",
+      "description": "卡片唯一 id（如 rule-20250818-001）"
+    }
+  },
+  "required": [
+    "id"
+  ]
+}
+```
+
+来源：[`packages/kb/kb-core/src/index.ts`](../packages/kb/kb-core/src/index.ts)
+
+### `kb_search`
+
+检索个人知识库：FTS5 全文（BM25）命中的草稿卡片，可按类型/状态/层级/标签过滤。结果真实来自卡片文件；索引不可用时明确降级为全库扫描（mode: scan）。
+
+```json
+{
+  "type": "object",
+  "properties": {
+    "query": {
+      "type": "string",
+      "description": "检索词（AND 连接，中文/英文均可）"
+    },
+    "type": {
+      "type": "string",
+      "description": "过滤：rule 规则 / case 案例 / howto 操作 / decision 决策",
+      "enum": [
+        "rule",
+        "case",
+        "howto",
+        "decision"
+      ]
+    },
+    "status": {
+      "type": "string",
+      "description": "过滤：draft / pending / ready / archived / revived",
+      "enum": [
+        "draft",
+        "pending",
+        "ready",
+        "archived",
+        "revived"
+      ]
+    },
+    "tier": {
+      "type": "string",
+      "description": "过滤：P0 / P1 / P2 / P3",
+      "enum": [
+        "P0",
+        "P1",
+        "P2",
+        "P3"
+      ]
+    },
+    "tags": {
+      "type": "array",
+      "description": "过滤：卡片须包含全部列出的标签",
+      "items": {
+        "type": "string"
+      }
+    },
+    "limit": {
+      "type": "integer",
+      "description": "返回条数上限，1-50，默认 10"
+    }
+  },
+  "required": [
+    "query"
+  ]
+}
+```
+
+来源：[`packages/kb/kb-core/src/index.ts`](../packages/kb/kb-core/src/index.ts)
+
+### `kb_write`
+
+写入一张新的个人库草稿卡片（Markdown + YAML front matter）。先想清楚：这条知识解决什么问题（title）、什么时候该用（适用条件）、结论是什么（核心结论）、该做什么/不该做什么（应做/不应做）。id 可省略，自动生成 {type}-YYYYMMDD-{seq}；有效期缺省按配置的 cardTtlDays 计算（当前 90 天）。
+
+```json
+{
+  "type": "object",
+  "properties": {
+    "tier": {
+      "type": "string",
+      "description": "个人库层级目录：P0 Inbox 随手记 / P1 项目笔记 / P2 草稿卡片 / P3 私人经验",
+      "enum": [
+        "P0",
+        "P1",
+        "P2",
+        "P3"
+      ]
+    },
+    "id": {
+      "type": "string",
+      "description": "卡片唯一 id（格式 {type}-YYYYMMDD-{seq}，如 rule-20250818-001）；缺省自动生成"
+    },
+    "type": {
+      "type": "string",
+      "description": "rule 规则 / case 案例 / howto 操作 / decision 决策",
+      "enum": [
+        "rule",
+        "case",
+        "howto",
+        "decision"
+      ]
+    },
+    "title": {
+      "type": "string",
+      "description": "一句话说清这条知识解决什么"
+    },
+    "适用条件": {
+      "type": "string",
+      "description": "什么情况下该用这条——检索命中的关键，要具体到别人/别的 Agent 能判断"
+    },
+    "核心结论": {
+      "type": "string",
+      "description": "一段话讲完结论"
+    },
+    "应做": {
+      "type": "array",
+      "description": "可执行的正面动作清单，至少一项",
+      "items": {
+        "type": "string"
+      }
+    },
+    "不应做": {
+      "type": "array",
+      "description": "可执行的负面动作清单，至少一项",
+      "items": {
+        "type": "string"
+      }
+    },
+    "来源": {
+      "type": "string",
+      "description": "客观证据（MR/事件单/文档链接）；个人草稿可省略"
+    },
+    "责任人": {
+      "type": "string",
+      "description": "知识负责人（个人库一般为本人）"
+    },
+    "有效期": {
+      "type": "string",
+      "description": "到期重校验日期 YYYY-MM-DD；缺省按配置的 cardTtlDays 计算"
+    },
+    "标签": {
+      "type": "array",
+      "description": "供知识包订阅分组的标签",
+      "items": {
+        "type": "string"
+      }
+    },
+    "反例": {
+      "type": "string",
+      "description": "可选：真实反例/踩坑记录，比正例更有检索价值"
+    }
+  },
+  "required": [
+    "tier",
+    "type",
+    "title",
+    "适用条件",
+    "核心结论",
+    "应做",
+    "不应做",
+    "责任人"
+  ]
+}
+```
+
+来源：[`packages/kb/kb-core/src/index.ts`](../packages/kb/kb-core/src/index.ts)
+
+四个 kb 工具是知识库接缝的个人库消费方。kb_write 在 session workspace（kb/cards/{tier}/{id}.md）创建草稿卡片；kb_search 运行 FTS5 BM25，索引无法打开时显式降级为扫描模式；kb_promote 驱动晋升状态机（draft → pending → ready）。
 
 <a id="deepseek-aidsh-plan-mode"></a>
 

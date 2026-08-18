@@ -838,6 +838,26 @@ export interface Config {
 
 来源：[`packages/jobs/jobs-local/src/index.ts:31`](../packages/jobs/jobs-local/src/index.ts)
 
+<a id="deepseek-aidsh-kb-core"></a>
+
+## `@deepseek-ai/dsh-kb-core`
+
+Requires: `tools`
+
+```ts config-catalog
+/** Deployment configuration of the kb service. */
+export interface KbConfig {
+  /** Library path relative to the session workspace root (default `kb/cards`). */
+  cardsPath?: string
+  /** Search index database path relative to the session workspace root (default `kb/.kb-index.sqlite`). */
+  indexPath?: string
+  /** Days added to today when a card's 有效期 is omitted (default 90). */
+  cardTtlDays?: number
+}
+```
+
+来源：[`packages/kb/kb-core/src/index.ts:47`](../packages/kb/kb-core/src/index.ts)
+
 <a id="deepseek-aidsh-llm-deepseek"></a>
 
 ## `@deepseek-ai/dsh-llm-deepseek`

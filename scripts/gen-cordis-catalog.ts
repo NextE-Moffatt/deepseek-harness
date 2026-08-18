@@ -72,6 +72,7 @@ export const SERVICE_PAGE: Record<string, string> = {
   goals: 'goal.md',
   webServer: 'web-server.md',
   invariants: 'invariants.md',
+  kb: 'kb.md',
   llm: 'llm-streaming.md',
   lsp: 'lsp.md',
   messageFeedback: 'feedback.md',
@@ -505,6 +506,16 @@ export const FOUNDATION_TYPE_NAMES: ReadonlySet<string> = new Set([
 
 /** Project types deliberately documented outside the subsystems catalog. */
 export const TYPE_LINK_EXEMPTIONS: Readonly<Record<string, string>> = {
+  CardWriteResult: 'kb service output is owned by packages/kb/kb-core/README.md',
+  WriteCardInput: 'kb service input is owned by packages/kb/kb-core/README.md',
+  CardFileInfo: 'kb storage entry is owned by packages/kb/kb-core/README.md',
+  SearchOutcome: 'kb search output is owned by packages/kb/kb-core/README.md',
+  SearchRequest: 'kb search input is owned by packages/kb/kb-core/README.md',
+  PromoteResult: 'kb promotion output is owned by packages/kb/kb-core/README.md',
+  ImportOptions: 'kb ingest input is owned by packages/kb/kb-core/README.md',
+  IngestResult: 'kb ingest output is owned by packages/kb/kb-core/README.md',
+  CardId: 'card model identity is owned by packages/kb/kb-core/README.md',
+  CardStatus: 'card model lifecycle state is owned by packages/kb/kb-core/README.md',
   z: 'schemastery schema constructor is owned by vendor/schemastery (vendored upstream)',
   BeginCommandRequest: 'event-local request contract is owned by packages/client/ui-input-trigger/src/types.ts',
   InsertReferenceRequest: 'event-local request contract is owned by packages/client/ui-input-trigger/src/types.ts',
