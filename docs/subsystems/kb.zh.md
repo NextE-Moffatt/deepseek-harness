@@ -2,7 +2,7 @@
 
 [English](kb.md) | 中文
 
-里程碑 1 个人知识库：`ctx.kb` 持有卡片读写、晋升状态机、带扫描降级契约的 FTS5 检索与增量采集，并注册 `kb_write` / `kb_read` / `kb_search` / `kb_promote` 工具。[设计 Agent Note](../../.agents/notes/implemented/feature/2026-08-18-dsh-kb-package-group-milestone-1.md) 持有包组决策；本页记录 [`packages/kb/kb-core/src/types.ts`](../../packages/kb/kb-core/src/types.ts) 的确切类型。
+个人知识库：`ctx.kb` 持有卡片读写、晋升状态机、带扫描降级契约的 FTS5 检索、增量采集与会话启动时的知识包注入，并注册 `kb_write` / `kb_read` / `kb_search` / `kb_promote` 工具。[设计 Agent Note](../../.agents/notes/implemented/feature/2026-08-18-dsh-kb-package-group-milestone-1.md) 持有包组决策，[注入 Agent Note](../../.agents/notes/implemented/feature/2026-08-18-dsh-kb-inject.md) 持有知识包决策；本页记录 [`packages/kb/kb-core/src/types.ts`](../../packages/kb/kb-core/src/types.ts) 的确切类型。
 
 ## Card model
 
@@ -50,7 +50,43 @@ type CardTier = 'P0' | 'P1' | 'P2' | 'P3'
 
 ## Session events
 
-状态变更必须入日志：`kb/write` 记录工具执行的卡片写入，`kb/promote` 记录状态流转。两者都在文件操作成功后追加，模型可见面可从 session 日志回放。完整载荷声明见 [persistence catalog](../persistence-catalog.md#kbpromote--log-only)。
+状态变更必须入日志：`kb/write` 记录工具执行的卡片写入，`kb/promote` 记录状态流转，`kb/injected` 记录一次会话启动时的知识包注入。三者都在底层操作成功后追加，模型可见面可从 session 日志回放；`kb/injected` 携带完整渲染后的卡片节，`kb:pack` prompt section 仅凭日志即可重建。完整载荷声明见 [persistence catalog](../persistence-catalog.md#kbpromote--log-only)。
+
+## Knowledge packs
+
+知识包 = 按订阅注入到 agent 会话的卡片集合。部署配置的包清单本身就是场景订阅——每个包携带选择卡片的过滤条件：
+
+```ts type-equiv
+/**
+ * A knowledge pack: a subscribed card collection injected into agent sessions
+ * at session start. The deployment's configured pack list IS the scenario
+ * subscription — each pack carries the filters that select its cards.
+ */
+interface KnowledgePack {
+  /** Unique pack name, shown to the model as the pack header. */
+  name: string
+  /** Filter: every listed tag must be present on the card. */
+  tags?: readonly string[]
+  /** Filter: tier allowlist. */
+  tier?: readonly CardTier[]
+  /** Filter: status allowlist; when absent, `archived` cards are excluded by default. */
+  status?: readonly CardStatus[]
+  /** Maximum cards injected per session; no cap when absent. */
+  limit?: number
+}
+```
+
+```ts type-equiv
+/** One injected card's rendered section, the replayable unit of a pack injection. */
+interface PackSection {
+  /** The card id, also the rendered heading. */
+  name: string
+  /** The rendered card content (title / 适用条件 / 核心结论 / 应做 / 不应做 / optional 反例). */
+  text: string
+}
+```
+
+包在 `KbConfig.packs` 下声明，加载时校验（非空唯一 name、闭合枚举 tier/status、正整数 limit、无未知键）。`agent/session-start` 时注入监听器同步读库，按包选择卡片（`tags` 必须全含、tier/status 白名单、缺省排除 `archived`、按 id 升序、按 `limit` 截断），每包追加一条携带渲染节的 `kb/injected` 事件。`kb:pack` prompt section fold 这些事件，为每个请求渲染包头与卡片块。注入按"每会话每包一次"（以日志 fold 为守卫），resume 与 fork 继承注入，回放逐字节复现该 section。无 workspace 的会话跳过注入，零命中卡片不追加，单包失败记日志并继续。
 
 <!-- BEGIN GENERATED cordis-surface (gen-cordis-catalog.ts) — do not edit between markers -->
 
@@ -64,7 +100,7 @@ Generated from source by `scripts/gen-cordis-catalog.ts` (verified fresh by `pnp
 
 ### `ctx.kb` — `KbService`
 
-`ctx.kb`: owns the personal library seam — card write/read, promotion, search, and incremental ingest — plus the milestone-1 tools.
+`ctx.kb`: owns the personal library seam — card write/read, promotion, search, and incremental ingest — plus the milestone-1 tools and the knowledge-pack injection wiring (session-start trigger + `kb:pack` section).
 
 ```ts cordis-catalog
 /**
@@ -113,5 +149,5 @@ async promote(root: string, id: CardId, target: CardStatus, evidence?: string): 
 importDir(options: ImportOptions): Promise<IngestResult>
 ```
 
-Source: [`packages/kb/kb-core/src/index.ts:170`](../../packages/kb/kb-core/src/index.ts)
+Source: [`packages/kb/kb-core/src/index.ts:183`](../../packages/kb/kb-core/src/index.ts)
 <!-- END GENERATED cordis-surface -->

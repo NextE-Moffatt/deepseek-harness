@@ -7,6 +7,7 @@
  */
 
 import { mkdir, open, readFile, readdir, rm, stat, writeFile } from 'node:fs/promises'
+import { readdirSync, readFileSync, statSync } from 'node:fs'
 import { join, resolve } from 'node:path'
 import { CARD_TIERS, parseCard, serializeCard } from './card.ts'
 import type { Card, CardId, CardTier } from './types.ts'
@@ -87,12 +88,47 @@ export class PersonalCardStore {
       for (const entry of entries) {
         if (!entry.isFile() || !entry.name.endsWith('.md')) continue
         const path = join(this.tierDir(tier), entry.name)
+        /* jscpd:ignore-start -- the sync/async listing twins share the per-file stat/read/parse-failure handling */
         try {
           const info = await stat(path)
           const text = await readFile(path, 'utf8')
           cards.push({ card: parseCard(text, path), tier, path, mtime: info.mtimeMs, size: info.size })
         } catch (error) {
           // stat, readFile, and parseCard only throw Error instances.
+          failures.push({ path, message: (error as Error).message })
+        }
+        /* jscpd:ignore-end */
+      }
+    }
+    return { cards, failures }
+  }
+
+  /**
+   * Synchronous twin of {@link list}, for the session-start injection listener
+   * (a fire-and-forget emit that must complete its read before the first
+   * prompt assembly). Same tier walk, same per-file parse-failure reporting.
+   * @returns parsed cards with tier/path/stat and per-file parse failures.
+   */
+  listSync(): { cards: CardFileInfo[]; failures: CardParseFailure[] } {
+    const cards: CardFileInfo[] = []
+    const failures: CardParseFailure[] = []
+    for (const tier of CARD_TIERS) {
+      let names: string[]
+      try {
+        names = readdirSync(this.tierDir(tier))
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code === 'ENOENT') continue
+        throw error
+      }
+      for (const name of names) {
+        if (!name.endsWith('.md')) continue
+        const path = join(this.tierDir(tier), name)
+        try {
+          const info = statSync(path)
+          const text = readFileSync(path, 'utf8')
+          cards.push({ card: parseCard(text, path), tier, path, mtime: info.mtimeMs, size: info.size })
+        } catch (error) {
+          // statSync, readFileSync, and parseCard only throw Error instances.
           failures.push({ path, message: (error as Error).message })
         }
       }

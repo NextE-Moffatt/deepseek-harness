@@ -12,11 +12,13 @@
 import { Context, Service } from '@deepseek-ai/cordis'
 import { resolve } from 'node:path'
 import { importDir as runImport, type ImportOptions, type IngestResult } from './ingest.ts'
+import { registerKbInjection } from './inject.ts'
 import { assertTransition } from './lifecycle.ts'
+import { resolvePacks } from './pack.ts'
 import { CardIndex, openCardIndex, scanSearch, type SearchOutcome, type SearchRequest } from './search.ts'
 import { PersonalCardStore, type CardFileInfo } from './store.ts'
 import { registerKbTools } from './tools.ts'
-import type { Card, CardId, CardStatus, CardTier, CardType } from './types.ts'
+import type { Card, CardId, CardStatus, CardTier, CardType, KnowledgePack } from './types.ts'
 
 export type * from './types.ts'
 export {
@@ -26,12 +28,17 @@ export {
 } from './card.ts'
 export { assertTransition, canTransition, CARD_TRANSITIONS } from './lifecycle.ts'
 export {
+  KB_PACK_SECTION, KB_PACK_SECTION_ORDER, foldInjected, hasInjectedPack,
+  renderCardSection, resolvePacks, selectPackCards,
+} from './pack.ts'
+export {
   CardIndex, KB_SEARCH_APPLICATION_ID, KB_SEARCH_SCHEMA_VERSION,
   openCardIndex, scanSearch,
 } from './search.ts'
 export type { SearchHit, SearchOutcome, SearchRequest } from './search.ts'
 export { PersonalCardStore } from './store.ts'
 export type { CardFileInfo, CardParseFailure } from './store.ts'
+export { injectPacks, registerKbInjection } from './inject.ts'
 export { importDir } from './ingest.ts'
 export type { ImportOptions, IngestResult } from './ingest.ts'
 export { registerKbTools } from './tools.ts'
@@ -51,6 +58,8 @@ export interface KbConfig {
   indexPath?: string
   /** Days added to today when a card's 有效期 is omitted (default 90). */
   cardTtlDays?: number
+  /** Knowledge packs injected at session start (default none). */
+  packs?: KnowledgePack[]
 }
 
 /** The resolved kb configuration, all fields concrete. */
@@ -61,6 +70,8 @@ export interface ResolvedKbConfig {
   indexPath: string
   /** Days added to today when a card's 有效期 is omitted. */
   cardTtlDays: number
+  /** Validated knowledge packs injected at session start. */
+  packs: KnowledgePack[]
 }
 
 /** Default library path relative to the session workspace root. */
@@ -85,6 +96,7 @@ export function resolveConfig(config: KbConfig): ResolvedKbConfig {
   const cardsPath = config.cardsPath ?? DEFAULT_CARDS_PATH
   const indexPath = config.indexPath ?? DEFAULT_INDEX_PATH
   const cardTtlDays = config.cardTtlDays ?? DEFAULT_CARD_TTL_DAYS
+  const packs = resolvePacks(config.packs)
   if (typeof cardsPath !== 'string' || cardsPath === '' || !isSafeRelativePath(cardsPath)) {
     throw new Error(`KbConfig.cardsPath must be a non-empty relative path without "..", got ${JSON.stringify(cardsPath)}`)
   }
@@ -94,7 +106,7 @@ export function resolveConfig(config: KbConfig): ResolvedKbConfig {
   if (!Number.isSafeInteger(cardTtlDays) || cardTtlDays < 1) {
     throw new Error(`KbConfig.cardTtlDays must be a positive integer, got ${JSON.stringify(cardTtlDays)}`)
   }
-  return { cardsPath, indexPath, cardTtlDays }
+  return { cardsPath, indexPath, cardTtlDays, packs }
 }
 
 /** Local date as `YYYYMMDD`, the id-sequence key. */
@@ -165,10 +177,11 @@ export interface PromoteResult {
 
 /**
  * `ctx.kb`: owns the personal library seam — card write/read, promotion,
- * search, and incremental ingest — plus the milestone-1 tools.
+ * search, and incremental ingest — plus the milestone-1 tools and the
+ * knowledge-pack injection wiring (session-start trigger + `kb:pack` section).
  */
 export class KbService extends Service {
-  static inject = ['tools']
+  static inject = ['tools', 'systemPrompt']
 
   /** The resolved configuration. */
   readonly config: ResolvedKbConfig
@@ -188,6 +201,7 @@ export class KbService extends Service {
       this.indexes.clear()
     }, 'dsh-kb-core: close per-root search indexes')
     registerKbTools(ctx, this)
+    registerKbInjection(ctx, this)
   }
 
   /** The personal library store for one workspace root. */

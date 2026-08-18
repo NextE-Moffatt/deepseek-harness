@@ -1,6 +1,7 @@
 /**
- * Package-owned durable `kb/*` event invariants: payload shapes and promotion
- * transition legality, checked against the session log. @module @deepseek-ai/dsh-kb-core/invariant
+ * Package-owned durable `kb/*` event invariants: payload shapes, promotion
+ * transition legality, and the card-id/section correspondence of injections,
+ * checked against the session log. @module @deepseek-ai/dsh-kb-core/invariant
  */
 
 import type { Context } from '@deepseek-ai/cordis'
@@ -74,11 +75,36 @@ function validatePromote(value: unknown, fail: InvariantFailure): void {
   }
 }
 
+/** Validate a `kb/injected` payload: a non-empty pack, and matching card-id and section faces. */
+function validateInjected(value: unknown, fail: InvariantFailure): void {
+  const data = value as Record<string, unknown>
+  if (typeof data['pack'] !== 'string' || data['pack'] === '') fail('kb/injected pack must be a non-empty string')
+  const cardIds = data['cardIds']
+  const sections = data['sections']
+  if (!Array.isArray(cardIds) || cardIds.length === 0) fail('kb/injected cardIds must be a non-empty array')
+  if (!Array.isArray(sections) || sections.length === 0) fail('kb/injected sections must be a non-empty array')
+  for (const id of cardIds) {
+    if (typeof id !== 'string' || id === '') fail('kb/injected cardIds must contain only non-empty strings')
+  }
+  for (const section of sections) {
+    const record = section as Record<string, unknown>
+    if (typeof record['name'] !== 'string' || record['name'] === '') fail('kb/injected section name must be a non-empty string')
+    if (typeof record['text'] !== 'string' || record['text'] === '') fail('kb/injected section text must be a non-empty string')
+  }
+  if (cardIds.length !== sections.length) fail('kb/injected cardIds and sections must have the same length')
+  for (let index = 0; index < cardIds.length; index++) {
+    if (cardIds[index] !== (sections[index] as Record<string, unknown>)['name']) {
+      fail('kb/injected section names must equal the card ids in order')
+    }
+  }
+}
+
 /* jscpd:ignore-start -- package companions share replay and dispatch plumbing */
 /** Validate the package-owned event fields and ignore unrelated events. */
 function validateEvent(event: SessionEvent, fail: InvariantFailure): void {
   if (event.type === 'kb/write') validateWrite(event.data, fail)
   if (event.type === 'kb/promote') validatePromote(event.data, fail)
+  if (event.type === 'kb/injected') validateInjected(event.data, fail)
 }
 
 /** Install validation for loaded and newly appended kb events. */

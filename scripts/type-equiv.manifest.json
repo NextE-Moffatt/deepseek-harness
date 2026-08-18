@@ -1954,6 +1954,16 @@
       "doc": "docs/subsystems/kb.md",
       "symbol": "CardTier",
       "source": "packages/kb/kb-core/src/types.ts"
+    },
+    {
+      "doc": "docs/subsystems/kb.md",
+      "symbol": "KnowledgePack",
+      "source": "packages/kb/kb-core/src/types.ts"
+    },
+    {
+      "doc": "docs/subsystems/kb.md",
+      "symbol": "PackSection",
+      "source": "packages/kb/kb-core/src/types.ts"
     }
   ]
 }

@@ -2,7 +2,7 @@
 
 English | [中文](README.zh.md)
 
-The milestone-1 knowledge base: a personal library of Markdown + YAML knowledge cards inside the session workspace, with FTS5 search, a promotion state machine, and the `kb_write` / `kb_read` / `kb_search` / `kb_promote` tools. Design: [dsh-kb package group and milestone 1 scope](../../../.agents/notes/implemented/feature/2026-08-18-dsh-kb-package-group-milestone-1.md).
+The personal knowledge base: a library of Markdown + YAML knowledge cards inside the session workspace, with FTS5 search, a promotion state machine, the `kb_write` / `kb_read` / `kb_search` / `kb_promote` tools, and knowledge-pack injection at session start. Design: [dsh-kb package group and milestone 1 scope](../../../.agents/notes/implemented/feature/2026-08-18-dsh-kb-package-group-milestone-1.md) and [knowledge packs and kb/injected injection](../../../.agents/notes/implemented/feature/2026-08-18-dsh-kb-inject.md).
 
 ## Service
 
@@ -16,7 +16,7 @@ The milestone-1 knowledge base: a personal library of Markdown + YAML knowledge 
 | `promote(root, id, target, evidence?)` | Assert the state machine, rewrite the card file, and return the new state. |
 | `importDir(options)` | Incremental ingest: import card-shaped `*.md` files from a source directory with a checkpoint and dedup. |
 
-The service methods stay session-free; the tools append the `kb/*` session events. Future modules (governance, recap, injection) drive the same seam.
+The service methods stay session-free; the tools append the `kb/*` session events. Future modules (governance, recap) drive the same seam.
 
 ## Configuration
 
@@ -25,6 +25,7 @@ The service methods stay session-free; the tools append the `kb/*` session event
 | `cardsPath` | `kb/cards` | Library path relative to the session workspace root; tiers P0–P3 are subdirectories, card files are `<id>.md`. |
 | `indexPath` | `kb/.kb-index.sqlite` | FTS5 index database path relative to the session workspace root. |
 | `cardTtlDays` | `90` | Days added to today when a card's 有效期 is omitted. |
+| `packs` | `[]` | Knowledge packs injected at session start; see [Knowledge packs](#knowledge-packs). |
 
 Invalid values fail loud at load.
 
@@ -38,12 +39,17 @@ The promotion state machine is `draft → pending → ready → archived → rev
 
 ## Events
 
-`kb/write` (a card file written by a tool) and `kb/promote` (a lifecycle transition) extend `SessionEventMap`; both are appended after the underlying file operation succeeds, so the model-visible surface is replayable from the session log.
+`kb/write` (a card file written by a tool), `kb/promote` (a lifecycle transition), and `kb/injected` (one knowledge-pack injection) extend `SessionEventMap`; all are appended after the underlying operation succeeds, so the model-visible surface is replayable from the session log.
+
+## Knowledge packs
+
+A knowledge pack is a subscribed card collection injected into every agent session at `agent/session-start`, configured under `KbConfig.packs` as `{ name, tags?, tier?, status?, limit? }` (validated at load: unique non-empty names, closed-enum members, positive integer limits). At session start the listener reads the library synchronously, selects each pack's cards (every listed tag must be present, tier/status allowlists, `archived` excluded by default, id-ascending, capped at `limit`), and appends one `kb/injected` event per pack carrying the rendered card sections. The `kb:pack` prompt section folds those events for every request, so the injected content reaches the first model request with no retrieval step and replays byte-identically from the log alone. Injection is once per session per pack (the log fold is the guard); sessions without a workspace skip injection, packs matching no cards append nothing, and per-pack failures log and continue. The payload's `cardIds` face is the telemetry projection's per-card heat record.
 
 ## Extension points
 
 - **Search backend**: `CardIndex` (FTS5 `unicode61`, BM25, per-root database) is swappable; the degradation contract (`mode: 'scan'` with a note, never fabricated results) is part of the interface. CJK runs are char-split so substring queries match without a segmentation dictionary.
 - **Ingest seam**: `importDir` is the production-mode-E minimal implementation; `ctx.jobs` scheduling and raw-note wrapping arrive with a real connector.
+- **Pack selection**: `selectPackCards` (pure) is the subscription filter; a future `kb_pack` tool or the web workbench can wrap it when a real consumer exists.
 
 ## Model Experience
 
@@ -75,10 +81,26 @@ Result size scales with the returned hits or card fields; call arguments remain 
 
 Append-only; newly visible content follows the reusable request prefix and does not invalidate existing KV-cache entries.
 
+### Knowledge-pack injection
+
+#### What the model sees
+
+Every request carries the `kb:pack` system-prompt section when packs are configured: one `## 知识包：<name>` block per injected pack, each card a `### <id>` heading followed by its rendered knowledge fields (标题 / 适用条件 / 核心结论 / 应做 / 不应做 / optional 反例). Governance metadata (库 / 状态 / 责任人 / 有效期 / 标签) is not rendered.
+
+#### Token effect
+
+The section cost is the sum of the injected card renders, constant across the session once injected (once per session per pack).
+
+#### KV Cache effect
+
+Prefix-stable while the injected packs are unchanged; the section follows the reusable request prefix and does not invalidate existing KV-cache entries.
+
 ## Known Limitations and Deferred Work
 
-- **Personal library only** — the team library (shared git repo with `cards/` + `docs/`), knowledge packs and injection (`kb/injected`), governance, telemetry, recap, web workbench, and MCP exposure are post-milestone-1 per the roadmap.
+- **Personal library only** — the team library (shared git repo with `cards/` + `docs/`), governance, telemetry, recap, web workbench, and MCP exposure are post-milestone-1 per the roadmap.
 - **Search reparses the library per sync** — each `search` re-reads and re-parses every card file; the index write is diffed by mtime/size, but parse cost is linear in library size.
 - **Raw-note ingestion is deferred** — `importDir` imports card-shaped files and counts raw files as skipped; wrapping notes into cards is the recap/distill milestone's job, and scheduling through `ctx.jobs` awaits a real connector.
 - **Chinese search is character-based** — CJK runs are char-split in the FTS index so substring queries match without a segmentation dictionary; ranking and phrase semantics differ from word-segmented search, and a one-character query matches any card containing that character.
 - **No atomic file writes** — card writes and the ingest checkpoint use direct writes; a crash mid-write can leave a partial file that the store reports as a parse failure.
+- **Injection reads the library synchronously at session start** — the `agent/session-start` emit does not await listeners and the first prompt assembly follows immediately, so the selection uses the store's sync path; the read is bounded by library size and pack filters.
+- **Injection is once per session per pack** — new tasks within one session and library edits after session start are not re-injected; packs carry no runtime scene matching (the configured pack list is the subscription), and workspace-file pack definitions await the web workbench.

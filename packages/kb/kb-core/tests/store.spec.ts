@@ -60,6 +60,25 @@ describe('PersonalCardStore', () => {
     expect(await store.list()).toEqual({ cards: [], failures: [] })
   })
 
+  it('listSync mirrors list: cards across tiers, per-file parse failures, and empty missing libraries', async () => {
+    const { store } = await makeStore()
+    expect(store.listSync()).toEqual({ cards: [], failures: [] })
+    await store.write(card('rule-20250818-001', { 状态: 'draft' }), 'P2')
+    await store.write(card('case-20250818-002'), 'P3')
+    await writeFile(join(store.tierDir('P2'), 'broken.md'), 'not a card', 'utf8')
+    await writeFile(join(store.tierDir('P2'), 'notes.txt'), 'not a card', 'utf8')
+    const sync = store.listSync()
+    expect(sync.cards.map(entry => entry.card.id).sort()).toEqual([
+      'case-20250818-002', 'rule-20250818-001',
+    ])
+    expect(sync.failures).toHaveLength(1)
+    expect(sync.failures[0]?.message).toMatch(/missing YAML front matter/)
+    // The async twin agrees on the same library.
+    const asyncList = await store.list()
+    expect(asyncList.cards.map(entry => entry.card.id).sort()).toEqual(sync.cards.map(entry => entry.card.id).sort())
+    expect(asyncList.failures).toHaveLength(1)
+  })
+
   it('finds a card across tiers and reports not-found', async () => {
     const { store } = await makeStore()
     await store.write(card('rule-20250818-001'), 'P2')

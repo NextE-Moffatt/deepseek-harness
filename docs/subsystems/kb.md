@@ -2,7 +2,7 @@
 
 English | [中文](kb.zh.md)
 
-The milestone-1 personal knowledge library: `ctx.kb` owns card write/read, the promotion state machine, FTS5 search with the scan degradation contract, and incremental ingest, and registers the `kb_write` / `kb_read` / `kb_search` / `kb_promote` tools. The [design Agent Note](../../.agents/notes/implemented/feature/2026-08-18-dsh-kb-package-group-milestone-1.md) owns the package-group decision; this page records the exact types from [`packages/kb/kb-core/src/types.ts`](../../packages/kb/kb-core/src/types.ts).
+The personal knowledge library: `ctx.kb` owns card write/read, the promotion state machine, FTS5 search with the scan degradation contract, incremental ingest, and knowledge-pack injection at session start, and registers the `kb_write` / `kb_read` / `kb_search` / `kb_promote` tools. The [design Agent Note](../../.agents/notes/implemented/feature/2026-08-18-dsh-kb-package-group-milestone-1.md) owns the package-group decision and the [injection Agent Note](../../.agents/notes/implemented/feature/2026-08-18-dsh-kb-inject.md) owns the knowledge-pack decision; this page records the exact types from [`packages/kb/kb-core/src/types.ts`](../../packages/kb/kb-core/src/types.ts).
 
 ## Card model
 
@@ -50,7 +50,43 @@ The promotion state machine is the closed chain `draft → pending → ready →
 
 ## Session events
 
-State changes are logged: `kb/write` records a tool-performed card write, `kb/promote` records a lifecycle transition. Both are appended after the underlying file operation succeeds, so the model-visible surface replays from the session log. The full payload declarations live in the [persistence catalog](../persistence-catalog.md#kbpromote--log-only).
+State changes are logged: `kb/write` records a tool-performed card write, `kb/promote` records a lifecycle transition, and `kb/injected` records one knowledge-pack injection at session start. All are appended after the underlying operation succeeds, so the model-visible surface replays from the session log; `kb/injected` carries the full rendered card sections, so the `kb:pack` prompt section reconstructs from the log alone. The full payload declarations live in the [persistence catalog](../persistence-catalog.md#kbpromote--log-only).
+
+## Knowledge packs
+
+A knowledge pack is a subscribed card collection injected into agent sessions at session start. The deployment's configured pack list is the scenario subscription — each pack carries the filters that select its cards:
+
+```ts type-equiv
+/**
+ * A knowledge pack: a subscribed card collection injected into agent sessions
+ * at session start. The deployment's configured pack list IS the scenario
+ * subscription — each pack carries the filters that select its cards.
+ */
+interface KnowledgePack {
+  /** Unique pack name, shown to the model as the pack header. */
+  name: string
+  /** Filter: every listed tag must be present on the card. */
+  tags?: readonly string[]
+  /** Filter: tier allowlist. */
+  tier?: readonly CardTier[]
+  /** Filter: status allowlist; when absent, `archived` cards are excluded by default. */
+  status?: readonly CardStatus[]
+  /** Maximum cards injected per session; no cap when absent. */
+  limit?: number
+}
+```
+
+```ts type-equiv
+/** One injected card's rendered section, the replayable unit of a pack injection. */
+interface PackSection {
+  /** The card id, also the rendered heading. */
+  name: string
+  /** The rendered card content (title / 适用条件 / 核心结论 / 应做 / 不应做 / optional 反例). */
+  text: string
+}
+```
+
+Packs are declared under `KbConfig.packs` and validated at load (unique non-empty names, closed-enum tier/status members, positive integer limits, no unknown keys). At `agent/session-start` the injection listener reads the library synchronously, selects each pack's cards (`tags` must all be present, tier/status allowlists, `archived` excluded by default, id-ascending, capped at `limit`), and appends one `kb/injected` event per pack with the rendered sections. The `kb:pack` prompt section folds those events and renders the pack headers and card blocks for every request. Injection is once per session per pack (the log fold is the guard), so resume and fork inherit the injection and replay reproduces the section byte-identically. Sessions without a workspace skip injection, packs matching no cards append nothing, and per-pack failures log and continue.
 
 <!-- BEGIN GENERATED cordis-surface (gen-cordis-catalog.ts) — do not edit between markers -->
 
@@ -64,7 +100,7 @@ Generated from source by `scripts/gen-cordis-catalog.ts` (verified fresh by `pnp
 
 ### `ctx.kb` — `KbService`
 
-`ctx.kb`: owns the personal library seam — card write/read, promotion, search, and incremental ingest — plus the milestone-1 tools.
+`ctx.kb`: owns the personal library seam — card write/read, promotion, search, and incremental ingest — plus the milestone-1 tools and the knowledge-pack injection wiring (session-start trigger + `kb:pack` section).
 
 ```ts cordis-catalog
 /**
@@ -113,5 +149,5 @@ async promote(root: string, id: CardId, target: CardStatus, evidence?: string): 
 importDir(options: ImportOptions): Promise<IngestResult>
 ```
 
-Source: [`packages/kb/kb-core/src/index.ts:170`](../../packages/kb/kb-core/src/index.ts)
+Source: [`packages/kb/kb-core/src/index.ts:183`](../../packages/kb/kb-core/src/index.ts)
 <!-- END GENERATED cordis-surface -->

@@ -791,8 +791,8 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
   },
   {
     key: 'kb',
-    summary: '`ctx.kb`: owns the personal library seam — card write/read, promotion, search, and incremental ingest — plus the milestone-1 tools.',
-    description: '`ctx.kb`: owns the personal library seam — card write/read, promotion, search, and incremental ingest — plus the milestone-1 tools.',
+    summary: '`ctx.kb`: owns the personal library seam — card write/read, promotion, search, and incremental ingest — plus the milestone-1 tools and the knowledge-pack injection wiring (session-start trigger + `kb:pack` section).',
+    description: '`ctx.kb`: owns the personal library seam — card write/read, promotion, search, and incremental ingest — plus the milestone-1 tools and the knowledge-pack injection wiring (session-start trigger + `kb:pack` section).',
     methods: [
       {
         signature: 'readonly config: ResolvedKbConfig',
@@ -3334,6 +3334,10 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export interface KnobState {\n    preset: string | null;\n    sandbox: SandboxMode | null;\n    approval: ApprovalPolicy | null;\n}',
   },
   {
+    name: 'KnowledgePack',
+    declaration: 'export interface KnowledgePack {\n    name: string;\n    tags?: readonly string[];\n    tier?: readonly CardTier[];\n    status?: readonly CardStatus[];\n    limit?: number;\n}',
+  },
+  {
     name: 'KvFacet',
     declaration: 'export interface KvFacet {\n    open(descriptor: KvUnitDescriptor): Promise<KvUnit>;\n}',
   },
@@ -3699,7 +3703,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'ResolvedKbConfig',
-    declaration: 'export interface ResolvedKbConfig {\n    cardsPath: string;\n    indexPath: string;\n    cardTtlDays: number;\n}',
+    declaration: 'export interface ResolvedKbConfig {\n    cardsPath: string;\n    indexPath: string;\n    cardTtlDays: number;\n    packs: KnowledgePack[];\n}',
   },
   {
     name: 'ResolvedNormalRetryPolicy',

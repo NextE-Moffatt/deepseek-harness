@@ -842,7 +842,7 @@ export interface Config {
 
 ## `@deepseek-ai/dsh-kb-core`
 
-Requires: `tools`
+Requires: `tools` · `systemPrompt`
 
 ```ts config-catalog
 /** Deployment configuration of the kb service. */
@@ -853,7 +853,38 @@ export interface KbConfig {
   indexPath?: string
   /** Days added to today when a card's 有效期 is omitted (default 90). */
   cardTtlDays?: number
+  /** Knowledge packs injected at session start (default none). */
+  packs?: KnowledgePack[]
 }
+
+/**
+ * A knowledge pack: a subscribed card collection injected into agent sessions
+ * at session start. The deployment's configured pack list IS the scenario
+ * subscription — each pack carries the filters that select its cards.
+ */
+export interface KnowledgePack {
+  /** Unique pack name, shown to the model as the pack header. */
+  name: string
+  /** Filter: every listed tag must be present on the card. */
+  tags?: readonly string[]
+  /** Filter: tier allowlist. */
+  tier?: readonly CardTier[]
+  /** Filter: status allowlist; when absent, `archived` cards are excluded by default. */
+  status?: readonly CardStatus[]
+  /** Maximum cards injected per session; no cap when absent. */
+  limit?: number
+}
+
+/** Personal-library tiers, encoded as the card's directory: P0 Inbox, P1 project notes, P2 draft cards, P3 private experience. */
+export type CardTier = 'P0' | 'P1' | 'P2' | 'P3'
+
+/**
+ * Lifecycle states of the promotion pipeline. `draft` is the personal-library
+ * entry state; `pending` awaits verification; `ready` is the reference pool;
+ * `archived` is retired; `revived` is a restored-active state, distinct from
+ * never-archived `ready` so governance can tell the two apart.
+ */
+export type CardStatus = 'draft' | 'pending' | 'ready' | 'archived' | 'revived'
 ```
 
 来源：[`packages/kb/kb-core/src/index.ts:47`](../packages/kb/kb-core/src/index.ts)

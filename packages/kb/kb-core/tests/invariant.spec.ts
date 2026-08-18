@@ -18,7 +18,7 @@ function event(type: SessionEvent['type'], data: unknown): SessionEvent {
 }
 
 describe('kb event invariants', () => {
-  it('accepts a coherent kb/write and kb/promote on live appends', async () => {
+  it('accepts a coherent kb/write, kb/promote, and kb/injected on live appends', async () => {
     const ctx = new Context()
     await ctx.plugin(SessionStore)
     await ctx.plugin(InvariantRegistry, { enabled: true })
@@ -32,6 +32,11 @@ describe('kb event invariants', () => {
     })
     const session = ctx.sessions.list()[0]!
     session.append('kb/promote', { id: 'rule-20250818-001' as CardId, from: 'draft', to: 'pending', evidence: 'MR#1' })
+    session.append('kb/injected', {
+      pack: '告警处置',
+      cardIds: ['rule-20250818-001' as CardId],
+      sections: [{ name: 'rule-20250818-001', text: '标题：t\n适用条件：值班收到告警' }],
+    })
     await ctx.plugin(KbInvariant)
   })
 
@@ -48,6 +53,14 @@ describe('kb event invariants', () => {
     ['kb/promote no change', 'kb/promote', { id: 'a-1', from: 'draft', to: 'draft' }, /must change the card state/],
     ['kb/promote illegal transition', 'kb/promote', { id: 'a-1', from: 'draft', to: 'ready' }, /not in the state machine/],
     ['kb/promote blank evidence', 'kb/promote', { id: 'a-1', from: 'draft', to: 'pending', evidence: '' }, /evidence must be a non-empty string/],
+    ['kb/injected blank pack', 'kb/injected', { pack: '', cardIds: ['a'], sections: [{ name: 'a', text: 't' }] }, /pack must be a non-empty string/],
+    ['kb/injected empty cardIds', 'kb/injected', { pack: 'p', cardIds: [], sections: [] }, /cardIds must be a non-empty array/],
+    ['kb/injected empty sections', 'kb/injected', { pack: 'p', cardIds: ['a'], sections: [] }, /sections must be a non-empty array/],
+    ['kb/injected bad cardIds item', 'kb/injected', { pack: 'p', cardIds: [''], sections: [{ name: 'a', text: 't' }] }, /cardIds must contain only non-empty strings/],
+    ['kb/injected blank section name', 'kb/injected', { pack: 'p', cardIds: ['a'], sections: [{ name: '', text: 't' }] }, /section name must be a non-empty string/],
+    ['kb/injected blank section text', 'kb/injected', { pack: 'p', cardIds: ['a'], sections: [{ name: 'a', text: '' }] }, /section text must be a non-empty string/],
+    ['kb/injected length mismatch', 'kb/injected', { pack: 'p', cardIds: ['a', 'b'], sections: [{ name: 'a', text: 't' }] }, /must have the same length/],
+    ['kb/injected name/id drift', 'kb/injected', { pack: 'p', cardIds: ['a'], sections: [{ name: 'b', text: 't' }] }, /must equal the card ids in order/],
   ])('rejects %s', async (_name, type, data, message) => {
     const ctx = await setup()
     expect(() => { ctx.emit('session/event', {} as Session, event(type as SessionEvent['type'], data)) }).toThrow(message)

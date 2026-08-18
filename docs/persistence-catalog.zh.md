@@ -474,6 +474,23 @@ export type SessionEvent<T extends SessionEventType = SessionEventType> = {
 
 ### `kb/*`
 
+<a id="kbinjected--log-only"></a>
+
+#### `kb/injected` — log-only
+
+```ts persistence-catalog
+/** One knowledge-pack injection at session start: the subscribed pack, the
+ * card ids it selected (the telemetry face), and the rendered card sections
+ * (the `kb:pack` prompt section's replayable source). */
+'kb/injected': {
+  pack: string
+  cardIds: CardId[]
+  sections: PackSection[]
+}
+```
+
+来源：[`packages/kb/kb-core/src/types.ts:125`](../packages/kb/kb-core/src/types.ts)
+
 <a id="kbpromote--log-only"></a>
 
 #### `kb/promote` — log-only

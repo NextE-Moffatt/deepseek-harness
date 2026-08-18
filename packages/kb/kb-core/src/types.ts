@@ -70,10 +70,39 @@ export interface Card {
 }
 
 /**
+ * A knowledge pack: a subscribed card collection injected into agent sessions
+ * at session start. The deployment's configured pack list IS the scenario
+ * subscription — each pack carries the filters that select its cards.
+ */
+export interface KnowledgePack {
+  /** Unique pack name, shown to the model as the pack header. */
+  name: string
+  /** Filter: every listed tag must be present on the card. */
+  tags?: readonly string[]
+  /** Filter: tier allowlist. */
+  tier?: readonly CardTier[]
+  /** Filter: status allowlist; when absent, `archived` cards are excluded by default. */
+  status?: readonly CardStatus[]
+  /** Maximum cards injected per session; no cap when absent. */
+  limit?: number
+}
+
+/** One injected card's rendered section, the replayable unit of a pack injection. */
+export interface PackSection {
+  /** The card id, also the rendered heading. */
+  name: string
+  /** The rendered card content (title / 适用条件 / 核心结论 / 应做 / 不应做 / optional 反例). */
+  text: string
+}
+
+/**
  * The `kb/*` session events (model-visible state changes are logged, per the
  * model-visible ⟺ logged invariant). `kb/write` records a card write performed
- * by a tool; `kb/promote` records a lifecycle transition. Tools append these
- * after the underlying file operation succeeds.
+ * by a tool; `kb/promote` records a lifecycle transition; `kb/injected`
+ * records one knowledge-pack injection, carrying the full rendered content so
+ * the `kb:pack` prompt section replays from the log alone. Tools append these
+ * after the underlying file operation succeeds; the injection listener appends
+ * `kb/injected` synchronously at `agent/session-start`.
  */
 declare module '@deepseek-ai/dsh-session/types' {
   interface SessionEventMap {
@@ -90,5 +119,13 @@ declare module '@deepseek-ai/dsh-session/types' {
     /** A card's lifecycle state transitioned from `from` to `to` through the
      * promotion state machine; `evidence` carries the optional objective signal. */
     'kb/promote': { id: CardId; from: CardStatus; to: CardStatus; evidence?: string }
+    /** One knowledge-pack injection at session start: the subscribed pack, the
+     * card ids it selected (the telemetry face), and the rendered card sections
+     * (the `kb:pack` prompt section's replayable source). */
+    'kb/injected': {
+      pack: string
+      cardIds: CardId[]
+      sections: PackSection[]
+    }
   }
 }

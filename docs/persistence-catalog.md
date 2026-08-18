@@ -472,6 +472,23 @@ Source: [`packages/hooks/hook-protocol/src/types.ts:31`](../packages/hooks/hook-
 
 ### `kb/*`
 
+<a id="kbinjected--log-only"></a>
+
+#### `kb/injected` — log-only
+
+```ts persistence-catalog
+/** One knowledge-pack injection at session start: the subscribed pack, the
+ * card ids it selected (the telemetry face), and the rendered card sections
+ * (the `kb:pack` prompt section's replayable source). */
+'kb/injected': {
+  pack: string
+  cardIds: CardId[]
+  sections: PackSection[]
+}
+```
+
+Source: [`packages/kb/kb-core/src/types.ts:125`](../packages/kb/kb-core/src/types.ts)
+
 <a id="kbpromote--log-only"></a>
 
 #### `kb/promote` — log-only
@@ -482,7 +499,7 @@ Source: [`packages/hooks/hook-protocol/src/types.ts:31`](../packages/hooks/hook-
 'kb/promote': { id: CardId; from: CardStatus; to: CardStatus; evidence?: string }
 ```
 
-Source: [`packages/kb/kb-core/src/types.ts:92`](../packages/kb/kb-core/src/types.ts)
+Source: [`packages/kb/kb-core/src/types.ts:121`](../packages/kb/kb-core/src/types.ts)
 
 <a id="kbwrite--log-only"></a>
 
@@ -501,7 +518,7 @@ Source: [`packages/kb/kb-core/src/types.ts:92`](../packages/kb/kb-core/src/types
 }
 ```
 
-Source: [`packages/kb/kb-core/src/types.ts:82`](../packages/kb/kb-core/src/types.ts)
+Source: [`packages/kb/kb-core/src/types.ts:111`](../packages/kb/kb-core/src/types.ts)
 
 ### `llm/*`
 
