@@ -1318,6 +1318,9 @@ importers:
       '@deepseek-ai/dsh-client-ui-jobs':
         specifier: workspace:^
         version: link:../../client/ui-jobs
+      '@deepseek-ai/dsh-client-ui-kb-workbench':
+        specifier: workspace:^
+        version: link:../../client/ui-kb-workbench
       '@deepseek-ai/dsh-client-ui-layout':
         specifier: workspace:^
         version: link:../../client/ui-layout
@@ -5332,6 +5335,10 @@ importers:
         version: link:../../core/tools
 
   packages/kb/kb-web:
+    dependencies:
+      zod:
+        specifier: ^4.4.3
+        version: 4.4.3
     devDependencies:
       '@deepseek-ai/cordis':
         specifier: workspace:^
