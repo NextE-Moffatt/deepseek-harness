@@ -2,7 +2,7 @@
 
 [English](README.md) | 中文
 
-个人 + 团队知识库：session workspace 内与共享团队 git 仓库（`cards/` + 文档型 `docs/`）中的 Markdown + YAML 知识卡片，带 FTS5 检索、晋升状态机、双门禁治理与保鲜调度、热度遥测投影、`kb_write` / `kb_read` / `kb_search` / `kb_promote` / `kb_gate_check` / `kb_team_promote` / `kb_team_read` / `kb_review` / `kb_archive` / `kb_revive` / `kb_team_status` / `kb_team_commit` / `kb_freshness` 工具与会话启动时的知识包注入。设计：[dsh-kb 包组设计与里程碑 1 范围](../../../.agents/notes/implemented/feature/2026-08-18-dsh-kb-package-group-milestone-1.md)、[知识包与 kb/injected 注入](../../../.agents/notes/implemented/feature/2026-08-18-dsh-kb-inject.md) 与 [里程碑 3：团队库、治理与遥测](../../../.agents/notes/implemented/feature/2026-08-19-dsh-kb-milestone-3.md)。
+个人 + 团队知识库：session workspace 内与共享团队 git 仓库（`cards/` + 文档型 `docs/`）中的 Markdown + YAML 知识卡片，带 FTS5 检索、晋升状态机、双门禁治理与保鲜调度、热度遥测投影、复盘盲点扫描与其可选调度器、方法论技能、`kb_write` / `kb_read` / `kb_search` / `kb_promote` / `kb_gate_check` / `kb_team_promote` / `kb_team_read` / `kb_review` / `kb_archive` / `kb_revive` / `kb_team_status` / `kb_team_commit` / `kb_freshness` / `kb_recap` 工具与会话启动时的知识包注入。设计：[dsh-kb 包组设计与里程碑 1 范围](../../../.agents/notes/implemented/feature/2026-08-18-dsh-kb-package-group-milestone-1.md)、[知识包与 kb/injected 注入](../../../.agents/notes/implemented/feature/2026-08-18-dsh-kb-inject.md)、[里程碑 3：团队库、治理与遥测](../../../.agents/notes/implemented/feature/2026-08-19-dsh-kb-milestone-3.md) 与 [里程碑 4：复盘盲点检测与方法论技能](../../../.agents/notes/implemented/feature/2026-08-19-dsh-kb-milestone-4-recap-and-skills.md)。
 
 ## Service
 
@@ -22,9 +22,10 @@
 | `listTeamDocs(root)` / `readTeamDoc(root, docPath)` | `docs/` Wiki 层（仓库相对路径）；docs 永不进入引用池。 |
 | `heat(root)` | 热度账本聚合：哪些卡片被哪些会话消费。 |
 | `freshnessReview(root, today?)` | 待复核清单：已过期与即将过期的卡片，附热度与建议。 |
+| `recap(root, limit)` | 运行一次复盘扫描：找出未记录的盲点、列出至多 `limit` 条并把已列出的位置记入检查点。 |
 | `importDir(options)` | 增量采集：从源目录导入卡片形 `*.md`，带检查点与去重。 |
 
-服务方法不持有 session；`kb/*` session 事件由工具追加。后续模块（复盘、web 工作台）复用同一接缝。
+服务方法不持有 session；`kb/*` session 事件由工具追加。后续模块（web 工作台）复用同一接缝。
 
 ## Configuration
 
@@ -38,6 +39,8 @@
 | `freshnessWarningDays` | `14` | 距有效期多少天内算"即将过期"。 |
 | `freshnessIntervalDays` | `0` | 保鲜扫描间隔天数；`0` 关闭调度器。调度器是每会话的 `ctx.jobs` 任务，需要组合 jobs 服务（挂 `@deepseek-ai/dsh-jobs-local` 与 job 控制器如 `@deepseek-ai/dsh-tool-jobs`）；配置了间隔但无 jobs 服务时每个 context 记一条 loud error。 |
 | `teamWriteApproval` | `true` | 团队写工具走审批 `ask` 门；无审批服务时拒绝。 |
+| `recapPath` | `kb/.kb-recap.jsonl` | 复盘检查点路径（相对 workspace 根）；检查点记录去重盲点队列的扫描位置。 |
+| `recapIntervalDays` | `0` | 复盘扫描间隔天数；`0` 关闭调度器。调度器是每会话的 `ctx.jobs` 任务，需要组合 jobs 服务，同保鲜。 |
 | `packs` | `[]` | 会话启动时注入的知识包；见 [Knowledge packs](#knowledge-packs)。 |
 
 非法配置在加载时 loud fail。
@@ -52,7 +55,7 @@
 
 ## Events
 
-`kb/write`（工具写入卡片文件）、`kb/promote`（状态流转）与 `kb/injected`（一次知识包注入）扩展 `SessionEventMap`，均在底层操作成功后追加，模型可见面可从 session 日志回放。
+`kb/write`（工具写入卡片文件）、`kb/promote`（状态流转）、`kb/team-join`（个人卡片经第一道门进入团队库）、`kb/injected`（一次知识包注入）与 `kb/recap`（一次复盘扫描的检查点推进）扩展 `SessionEventMap`，均在底层操作成功后追加，模型可见面可从 session 日志回放。
 
 ## Knowledge packs
 
@@ -65,6 +68,16 @@
 - **包选择**：`selectPackCards`（纯函数）是横跨两库的订阅过滤；未来 `kb_pack` 工具或 web 工作台出现真实消费者时再包装。
 - **治理逻辑**：`evaluateGate`、`gradeCard`、`partitionReview` 与 `recommendFreshness`（纯函数）分别是双门禁、质量分级、保鲜分区与基于热度的建议；工具与调度器组合它们。
 - **热度投影**：`projectInjectedHeat` + `HeatLedger` 把 `kb/injected` 事件的消费投影进 JSONL 账本；仅凭 session 日志即可重建。
+- **复盘扫描**：`runRecapScan` + `RecapCheckpoint` + `detectBlindSpots`（纯函数）扫描 workspace 会话日志找出盲点、用记录位置去重并记录已列出者；`projectRecapScans` 仅凭 session 日志重建检查点。`kb_recap` 工具与可选 `kb-recap` 调度器共用该扫描。
+- **技能注册**：有 skills 服务时 `registerKbSkills` 把三个方法论技能挂到 `ctx.skills`；技能正文插值解析器常量，所述卡片规范事实不可能漂移。
+
+## Recap
+
+复盘闭合"用即积累"循环（设计 §5 模式 B）：`kb_recap`（以及 `recapIntervalDays` 下的可选每会话 `kb-recap` 任务）扫描 workspace 的会话日志——`header.cwd` 等于根目录的实时 `ctx.sessions` 会话，优先于可选 `sessionPersistence` 服务中的持久化会话——找出盲点：消费过知识（`kb/injected` 携带卡片 id）但未产出卡片（无 `kb/write`）的会话。扫描列出最近发生的未记录盲点（至多 `limit` 条，默认 10），附有界会话摘录，并把已列出的位置记入 `recapPath` 检查点；每个盲点按会话长度只浮出一次，只有当该会话日志增长后才重新进入队列。扫描绝不伪造卡片内容：模型读清单与摘录后通过 `kb_write` 蒸馏成 P2 草稿，之后双门禁管线原样适用。`kb/recap` 事件携带每次扫描记录的位置与列出的盲点，检查点仅凭这些事件即可重建（`projectRecapScans` + `RecapCheckpoint.writeAll`）。
+
+## Skills
+
+挂载了 `ctx.skills` 服务（如 `@deepseek-ai/dsh-skill`）时注册三个方法论技能：`kb-card-writing`（卡片模板与 §4.3 质量检查清单；类型/层级/状态/库等结构事实插值解析器常量）、`kb-recap-flow`（模式 B 步骤：何时跑 `kb_recap`、如何判断盲点、经 `kb_write` 蒸馏、再走双门禁）、`kb-pack-building`（`tags` / `tier` / `library` / `status` / `limit` 过滤语义）。没有 skills 服务时每个 context 记一条 loud error 并跳过。
 
 ## Model Experience
 
@@ -72,7 +85,7 @@
 
 #### What the model sees
 
-模型看到的是 [tool catalog](../../../docs/tool-catalog.md#deepseek-aidsh-kb-core) 中的生成 schema：`kb_write`（tier / type / title / 适用条件 / 核心结论 / 应做 / 不应做 / 来源 / 责任人 / 有效期 / 标签 / 反例，`id` 可选）、`kb_read`（`id`）、`kb_search`（`query` + 可选 `type` / `status` / `tier` / `tags` / `limit`）、`kb_promote`（`id`、`target: pending|ready`、可选 `evidence`）。`kb_write` 的描述内嵌配置的 `cardTtlDays`。
+模型看到的是 [tool catalog](../../../docs/tool-catalog.md#deepseek-aidsh-kb-core) 中的生成 schema：`kb_write`（tier / type / title / 适用条件 / 核心结论 / 应做 / 不应做 / 来源 / 责任人 / 有效期 / 标签 / 反例，`id` 可选）、`kb_read`（`id`）、`kb_search`（`query` + 可选 `type` / `status` / `tier` / `tags` / `limit`）、`kb_promote`（`id`、`target: pending|ready`、可选 `evidence`）、`kb_gate_check`（`id`、`evidence`）、`kb_team_promote`（`id`、`evidence`）、`kb_team_read`（`id`）、`kb_review`（`id`、`approved`、可选 `note`）、`kb_archive` / `kb_revive`（`id`）、`kb_team_status`（无参）、`kb_team_commit`（`message`）、`kb_freshness`（无参）、`kb_recap`（可选 `limit`，1–50，默认 10）。`kb_write` 的描述内嵌配置的 `cardTtlDays`。
 
 #### Token effect
 
@@ -86,7 +99,7 @@
 
 #### What the model sees
 
-`kb_write` 返回 `{ id, title, type, tier, status: draft, path }` 并记录 `kb/write` 事件；`kb_read` 返回完整卡片 + 层级与路径；`kb_search` 返回 `{ mode: 'fts' | 'scan', total, note?, hits }`，命中始终是真实卡片文件，扫描模式带降级说明；`kb_promote` 返回 `{ id, from, to, title, path }` 并记录 `kb/promote` 事件。稳定失败信息：`Error: card not found: <id>`、`Error: invalid card transition <from> → <to> (...)`。
+`kb_write` 返回 `{ id, title, type, tier, status: draft, path }` 并记录 `kb/write` 事件；`kb_read` 返回完整卡片 + 层级与路径；`kb_search` 返回 `{ mode: 'fts' | 'scan', total, note?, hits }`，命中始终是真实卡片文件，扫描模式带降级说明；`kb_promote` 返回 `{ id, from, to, title, path }` 并记录 `kb/promote` 事件；`kb_gate_check` 返回 `{ verdict: PASS|BLOCK, reasons, evidenceCount }`；`kb_team_promote` 返回 `{ id, title, status: pending, path }` 并记录 `kb/promote` + `kb/team-join`；`kb_review` 返回 `{ id, title, status, changed, note? }`，通过时记录 `kb/promote`；`kb_archive` / `kb_revive` 返回 `{ id, from, to, title, path }` 并记录 `kb/promote`；`kb_team_status` 返回 `{ clean, files }`；`kb_team_commit` 返回 `{ message, output }`；`kb_freshness` 返回 `{ scanDate, total, overdue, expiringSoon }` 复核条目；`kb_recap` 返回 `{ scanDate, total, listed, entries }`（条目携带盲点会话 id、最后事件时间、消费过的卡片 id 与有界会话摘录），记录位置时追加 `kb/recap` 事件。稳定失败信息：`Error: card not found: <id>`、`Error: invalid card transition <from> → <to> (...)`、`kb_gate_check BLOCK:` 前缀的门禁原因、`Error: limit must be an integer between 1 and 50, got <value>`。
 
 #### Token effect
 
@@ -118,8 +131,12 @@
 - **热度按 workspace 记账**——`KbConfig.heatPath` 账本只记录本 workspace 的会话；团队库的跨 workspace 聚合是工作台工作。
 - **团队卡片无分布式锁**——同一卡片的并发状态迁移可能丢失更新；push 时的 git 冲突解决是边界（见 [git 策略 Note](../../../.agents/notes/implemented/feature/2026-08-19-dsh-kb-team-git-strategy.md)）。
 - **保鲜调度依赖 jobs 服务**——调度需要组合的 `ctx.jobs` 实现与控制器；没有时按需 `kb_freshness` 工具仍可用，且配置错误会 loud log。
+- **复盘调度依赖 jobs 服务**——`kb-recap` 任务与保鲜相同；没有时按需 `kb_recap` 工具仍可用，且配置错误会 loud log。
+- **复盘通知就是工具与任务输出**——盲点清单经 `kb_recap` 工具结果与定时任务缓冲输出到达模型；web 待办或 IM 通知渠道是 web 工作台里程碑的决策。
+- **盲点按会话长度只浮出一次**——已列出的盲点被记录，直到该会话日志增长才重新列出；历史清单从 `kb/recap` 事件重建。
+- **复盘只扫当前进程的实时与持久化会话**——可选 `sessionPersistence` 服务把扫描扩展到持久化日志；harness 之外的跨进程日志存储不扫描。
 - **向量/RAG 检索后置**——FTS5 + 结构化过滤是里程碑 1 契约；团队卡片约 500 条后由 kb-search 接缝吸收向量后端（设计 §4.4）。
-- **复盘、web 工作台与 MCP 暴露后置**——路线图里程碑 4+。
+- **web 工作台与 MCP 暴露后置**——路线图里程碑 5+。
 - **检索每次同步重新解析全库**——每次 `search` 都重读并重解析所有卡片文件；索引写入按 mtime/size 差异更新，但解析成本与库大小线性。
 - **原始笔记采集推迟**——`importDir` 只导入卡片形文件并计数跳过原始文件；笔记转卡片归复盘/蒸馏里程碑，`ctx.jobs` 调度等待真实连接器。
 - **中文检索按字切分**——FTS 索引将中文按字拆开以支持子串查询，无需分词词典；排序与短语语义与分词检索不同，单字查询会命中所有含该字的卡片。

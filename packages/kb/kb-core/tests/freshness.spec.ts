@@ -75,6 +75,8 @@ function kbLike(config: Partial<ResolvedKbConfig>, teamRoot?: string): {
     freshnessWarningDays: 14,
     freshnessIntervalDays: 0,
     teamWriteApproval: true,
+    recapPath: 'kb/.kb-recap.jsonl',
+    recapIntervalDays: 0,
     packs: [],
     ...config,
   }

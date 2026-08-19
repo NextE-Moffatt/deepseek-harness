@@ -2,7 +2,7 @@
 
 English | [中文](kb.zh.md)
 
-The personal + team knowledge library: `ctx.kb` owns card write/read, the promotion state machine, FTS5 search with the scan degradation contract, incremental ingest, knowledge-pack injection at session start, the team git library (cards/ + docs/), the dual-gate governance with freshness, and the heat telemetry projection, and registers the `kb_write` / `kb_read` / `kb_search` / `kb_promote` / `kb_gate_check` / `kb_team_promote` / `kb_team_read` / `kb_review` / `kb_archive` / `kb_revive` / `kb_team_status` / `kb_team_commit` / `kb_freshness` tools. The [milestone-1 Agent Note](../../.agents/notes/implemented/feature/2026-08-18-dsh-kb-package-group-milestone-1.md) owns the package-group decision, the [injection Agent Note](../../.agents/notes/implemented/feature/2026-08-18-dsh-kb-inject.md) owns the knowledge-pack decision, and the [milestone-3 Agent Note](../../.agents/notes/implemented/feature/2026-08-19-dsh-kb-milestone-3.md) owns the team-library, governance, and telemetry decisions; this page records the exact types from [`packages/kb/kb-core/src/types.ts`](../../packages/kb/kb-core/src/types.ts).
+The personal + team knowledge library: `ctx.kb` owns card write/read, the promotion state machine, FTS5 search with the scan degradation contract, incremental ingest, knowledge-pack injection at session start, the team git library (cards/ + docs/), the dual-gate governance with freshness, the heat telemetry projection, the recap blind-spot scan with its optional scheduler, and the methodology skills, and registers the `kb_write` / `kb_read` / `kb_search` / `kb_promote` / `kb_gate_check` / `kb_team_promote` / `kb_team_read` / `kb_review` / `kb_archive` / `kb_revive` / `kb_team_status` / `kb_team_commit` / `kb_freshness` / `kb_recap` tools. The [milestone-1 Agent Note](../../.agents/notes/implemented/feature/2026-08-18-dsh-kb-package-group-milestone-1.md) owns the package-group decision, the [injection Agent Note](../../.agents/notes/implemented/feature/2026-08-18-dsh-kb-inject.md) owns the knowledge-pack decision, the [milestone-3 Agent Note](../../.agents/notes/implemented/feature/2026-08-19-dsh-kb-milestone-3.md) owns the team-library, governance, and telemetry decisions, and the [milestone-4 Agent Note](../../.agents/notes/implemented/feature/2026-08-19-dsh-kb-milestone-4-recap-and-skills.md) owns the recap and skills decisions; this page records the exact types from [`packages/kb/kb-core/src/types.ts`](../../packages/kb/kb-core/src/types.ts).
 
 ## Card model
 
@@ -65,7 +65,7 @@ The team library is a git work tree at `KbConfig.teamRepoPath` (absolute, or rel
 
 ## Session events
 
-State changes are logged: `kb/write` records a tool-performed card write, `kb/promote` records a lifecycle transition, `kb/team-join` records a personal card entering the team library through the first gate, and `kb/injected` records one knowledge-pack injection at session start. All are appended after the underlying operation succeeds, so the model-visible surface replays from the session log; `kb/injected` carries the full rendered card sections, so the `kb:pack` prompt section reconstructs from the log alone. The full payload declarations live in the [persistence catalog](../persistence-catalog.md#kbpromote--log-only).
+State changes are logged: `kb/write` records a tool-performed card write, `kb/promote` records a lifecycle transition, `kb/team-join` records a personal card entering the team library through the first gate, `kb/injected` records one knowledge-pack injection at session start, and `kb/recap` records one recap scan's checkpoint advancement (the recorded positions and the listed blind spots). All are appended after the underlying operation succeeds, so the model-visible surface replays from the session log; `kb/injected` carries the full rendered card sections, so the `kb:pack` prompt section reconstructs from the log alone. The full payload declarations live in the [persistence catalog](../persistence-catalog.md#kbpromote--log-only).
 
 ## Knowledge packs
 
@@ -112,6 +112,14 @@ The dual gate (design §5.3) is state-machine-shaped: `kb_gate_check` evaluates 
 ## Telemetry
 
 Consumption heat is projected from the session log, never recorded as a second event stream: every `kb/injected` event contributes one ledger entry per card id to the workspace's JSONL heat ledger (`KbConfig.heatPath`, default `kb/.kb-heat.jsonl`), and the ledger aggregates to per-card rows (count, last session, packs). The projection is rebuildable from session logs alone (`projectInjectedHeat` over any log reproduces the entries). Heat feeds the freshness recommendations and the future revival/promotion signals.
+
+## Recap
+
+The recap closes the "用即积累" loop: `kb_recap` (and the optional per-session `kb-recap` job under `KbConfig.recapIntervalDays`) scans the workspace's session logs, detects the unrecorded blind spots — sessions that consumed knowledge (`kb/injected` with card ids) but produced no card (`kb/write`) — lists the most recent ones with bounded conversation excerpts, and records the listed positions into the checkpoint at `KbConfig.recapPath` (default `kb/.kb-recap.jsonl`). Each blind spot is surfaced exactly once per session length and re-enters the queue only when its session's log grows; `limit` pages through the queue. The scan never fabricates card content: the model reads the list and excerpts and distills draft cards through `kb_write` into P2, after which the dual-gate pipeline applies unchanged. The `kb/recap` event records each scan's checkpoint advancement, and `projectRecapScans` over session logs rebuilds the checkpoint — the `HeatLedger` pattern.
+
+## Skills
+
+Three methodology skills register on the skills registry when a skills service is mounted: `kb-card-writing` (the card template and the §4.3 quality checklist, with the structure facts interpolated from the parser constants so they cannot drift), `kb-recap-flow` (the mode-B steps: when to run `kb_recap`, how to judge blind spots, distillation through `kb_write`, then the dual gate), and `kb-pack-building` (the `tags` / `tier` / `library` / `status` / `limit` filter semantics). A context without a skills service logs one loud error and skips.
 
 <!-- BEGIN GENERATED cordis-surface (gen-cordis-catalog.ts) — do not edit between markers -->
 
@@ -294,7 +302,18 @@ async heat(root: string): Promise<HeatRow[]>
  * @returns the review list.
  */
 freshnessReview(root: string, today?: string): Promise<FreshnessReview>
+
+/**
+ * Run one recap scan for one workspace: detect the unrecorded blind spots
+ * (sessions that consumed knowledge but produced no card), list up to
+ * `limit`, and record the listed positions (see {@link runRecapScan}). The
+ * caller (tool) appends the `kb/recap` event when positions were recorded.
+ * @param root - the session workspace root.
+ * @param limit - the listing cap (a positive integer).
+ * @returns the scan outcome.
+ */
+async recap(root: string, limit: number): Promise<RecapScanResult>
 ```
 
-Source: [`packages/kb/kb-core/src/index.ts:262`](../../packages/kb/kb-core/src/index.ts)
+Source: [`packages/kb/kb-core/src/index.ts:300`](../../packages/kb/kb-core/src/index.ts)
 <!-- END GENERATED cordis-surface -->

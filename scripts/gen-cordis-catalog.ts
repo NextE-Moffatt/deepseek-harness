@@ -528,6 +528,7 @@ export const TYPE_LINK_EXEMPTIONS: Readonly<Record<string, string>> = {
   ReviewEntry: 'kb freshness entry is owned by packages/kb/kb-core/README.md',
   HeatEntry: 'kb telemetry entry is owned by packages/kb/kb-core/README.md',
   HeatRow: 'kb telemetry aggregation is owned by packages/kb/kb-core/README.md',
+  RecapScanResult: 'kb recap scan output is owned by packages/kb/kb-core/README.md',
   z: 'schemastery schema constructor is owned by vendor/schemastery (vendored upstream)',
   BeginCommandRequest: 'event-local request contract is owned by packages/client/ui-input-trigger/src/types.ts',
   InsertReferenceRequest: 'event-local request contract is owned by packages/client/ui-input-trigger/src/types.ts',

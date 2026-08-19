@@ -287,3 +287,74 @@ title: 团队告警处置基线
     expect(replayInjected).toHaveLength(1)
   })
 })
+
+describe('milestone-4 recap chain through the agent loop', () => {
+  it('the model scans for blind spots, distills a draft, and the log replays the chain', async () => {
+    const adapter = new MockAdapter([
+      toolCallResponse('loop-recap-1', 'kb_recap', {}, 'Scanning for blind spots.'),
+      toolCallResponse('loop-recap-2', 'kb_write', {
+        tier: 'P2',
+        id: 'rule-20260818-300',
+        type: 'rule',
+        title: '新告警防误报步骤',
+        适用条件: '值班收到同类新告警',
+        核心结论: '按基线处置后追加防误报步骤。',
+        应做: ['追加防误报步骤'],
+        不应做: ['跳过基线'],
+        来源: 'session:it-recap-blind 复盘',
+        责任人: '张三',
+        标签: ['告警'],
+      }, 'Distilling the draft card.'),
+      textResponse('已蒸馏草稿卡片。'),
+    ])
+    const { ctx, workspace } = await harness(adapter)
+    // A past workspace session consumed knowledge but produced no card: the
+    // blind spot the recap scan must surface.
+    const blind = ctx.sessions.create(SessionId('it-recap-blind'), { meta: { cwd: workspace } })
+    blind.append('kb/injected', {
+      pack: '告警处置',
+      cardIds: ['rule-20260818-100' as CardId],
+      sections: [{ name: 'rule-20260818-100', text: '标题：团队告警处置基线' }],
+    })
+    blind.append('user/message', createUserMessage({ content: [{ type: 'text', text: '值班遇到新告警，按基线处置后追加了防误报步骤。' }], source: { kind: 'user' } }), { surfaceOp: 'append' })
+
+    const agent = ctx.agentLoop.create(SessionId('it-kb-m4'), { provider: 'mock', model: 'mock' }, { cwd: workspace })
+    agent.followup(createUserMessage({ content: [{ type: 'text', text: '复盘并蒸馏这次值班学到的内容' }], source: { kind: 'user' } }))
+    await waitForIdle(ctx, agent)
+
+    const log = agent.session.events
+    // The recap scan ran through the real tool and logged its facts.
+    const recaps = log.filter(event => event.type === 'kb/recap')
+    expect(recaps).toHaveLength(1)
+    expect(recaps[0]!.data.blindSpots[0]!.sessionId).toBe('it-recap-blind')
+    expect(recaps[0]!.data.blindSpots[0]!.consumed).toEqual(['rule-20260818-100'])
+    expect(recaps[0]!.data.scanned).toEqual([{ sessionId: SessionId('it-recap-blind'), eventCount: 2 }])
+
+    // The model distilled the draft card into P2.
+    const writes = log.filter(event => event.type === 'kb/write')
+    expect(writes).toHaveLength(1)
+    expect((writes[0]!.data as { id: string }).id).toBe('rule-20260818-300')
+    const file = await readFile(join(workspace, 'kb/cards/P2', 'rule-20260818-300.md'), 'utf8')
+    expect(file).toContain('状态: draft')
+
+    // Both tool calls completed without error.
+    const results = log.filter(event => event.type === 'tool/result')
+    expect(results).toHaveLength(2)
+    for (const result of results) expect(result.data.message.content[0].isError).toBe(false)
+
+    // The recap material reached the model: the tool result names the session.
+    const recapResult = results[0]!.data.message.content
+      .flatMap(block => block.type === 'tool-result' ? block.content : [block])
+      .filter(block => block.type === 'text').map(block => block.text).join('')
+    expect(recapResult).toContain('it-recap-blind')
+    expect(recapResult).toContain('防误报')
+
+    // Replay: a fresh session seeded with the log reconstructs the chain.
+    const replayed = Session.create(SessionId('it-kb-m4-replay'), log)
+    const replayRecap = replayed.events.find(event => event.type === 'kb/recap')
+    expect(replayRecap!.data).toEqual(recaps[0]!.data)
+    expect(replayed.events.some(event =>
+      event.type === 'kb/write' && event.data.id === 'rule-20260818-300',
+    )).toBe(true)
+  })
+})

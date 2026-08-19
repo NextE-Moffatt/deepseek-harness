@@ -863,6 +863,10 @@ export interface KbConfig {
   freshnessIntervalDays?: number
   /** Route team-library write tools through the approval `ask` gate (default true). */
   teamWriteApproval?: boolean
+  /** Recap checkpoint path relative to the session workspace root (default `kb/.kb-recap.jsonl`). */
+  recapPath?: string
+  /** Days between scheduled recap scans; 0 disables the scheduler (default 0). */
+  recapIntervalDays?: number
   /** Knowledge packs injected at session start (default none). */
   packs?: KnowledgePack[]
 }

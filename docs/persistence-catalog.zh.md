@@ -502,7 +502,27 @@ export type SessionEvent<T extends SessionEventType = SessionEventType> = {
 'kb/promote': { id: CardId; from: CardStatus; to: CardStatus; evidence?: string }
 ```
 
-来源：[`packages/kb/kb-core/src/types.ts:132`](../packages/kb/kb-core/src/types.ts)
+来源：[`packages/kb/kb-core/src/types.ts:153`](../packages/kb/kb-core/src/types.ts)
+
+<a id="kbrecap--log-only"></a>
+
+#### `kb/recap` — log-only
+
+```ts persistence-catalog
+/** One recap scan recorded its checkpoint advancement: the positions
+ * appended (`scanned`, the checkpoint's rebuild face) and the listed blind
+ * spots (`blindSpots`, the surfaced queue's replayable facts; excerpts are
+ * pure functions of each referenced session's own log). */
+'kb/recap': {
+  scanDate: string
+  scanned: RecapPosition[]
+  blindSpots: RecapBlindSpot[]
+  total: number
+  listed: number
+}
+```
+
+来源：[`packages/kb/kb-core/src/types.ts:175`](../packages/kb/kb-core/src/types.ts)
 
 <a id="kbteam-join--log-only"></a>
 
@@ -520,7 +540,7 @@ export type SessionEvent<T extends SessionEventType = SessionEventType> = {
 }
 ```
 
-来源：[`packages/kb/kb-core/src/types.ts:145`](../packages/kb/kb-core/src/types.ts)
+来源：[`packages/kb/kb-core/src/types.ts:166`](../packages/kb/kb-core/src/types.ts)
 
 <a id="kbwrite--log-only"></a>
 

@@ -109,6 +109,47 @@ function validateTeamJoin(value: unknown, fail: InvariantFailure): void {
   }
 }
 
+/** Validate a `kb/recap` payload: scan metadata, position and blind-spot arrays. */
+function validateRecap(value: unknown, fail: InvariantFailure): void {
+  const data = value as Record<string, unknown>
+  if (typeof data['scanDate'] !== 'string' || data['scanDate'] === '') fail('kb/recap scanDate must be a non-empty string')
+  const scanned = data['scanned']
+  const blindSpots = data['blindSpots']
+  if (!Array.isArray(scanned)) fail('kb/recap scanned must be an array')
+  if (!Array.isArray(blindSpots)) fail('kb/recap blindSpots must be an array')
+  for (const position of scanned) {
+    const record = position as Record<string, unknown>
+    if (typeof record['sessionId'] !== 'string' || record['sessionId'] === '') {
+      fail('kb/recap scanned sessionId must be a non-empty string')
+    }
+    if (typeof record['eventCount'] !== 'number'
+      || !Number.isInteger(record['eventCount'])
+      || record['eventCount'] < 0) {
+      fail('kb/recap scanned eventCount must be a non-negative integer')
+    }
+  }
+  for (const spot of blindSpots) {
+    const record = spot as Record<string, unknown>
+    if (typeof record['sessionId'] !== 'string' || record['sessionId'] === '') {
+      fail('kb/recap blindSpots sessionId must be a non-empty string')
+    }
+    if (typeof record['at'] !== 'string' || record['at'] === '') fail('kb/recap blindSpots at must be a non-empty string')
+    if (!Array.isArray(record['consumed']) || (record['consumed'] as unknown[]).some(id => typeof id !== 'string' || id === '')) {
+      fail('kb/recap blindSpots consumed must be an array of non-empty strings')
+    }
+  }
+  if (typeof data['total'] !== 'number'
+    || !Number.isInteger(data['total'])
+    || data['total'] < 0) {
+    fail('kb/recap total must be a non-negative integer')
+  }
+  if (typeof data['listed'] !== 'number'
+    || !Number.isInteger(data['listed'])
+    || data['listed'] < 0) {
+    fail('kb/recap listed must be a non-negative integer')
+  }
+}
+
 /* jscpd:ignore-start -- package companions share replay and dispatch plumbing */
 /** Validate the package-owned event fields and ignore unrelated events. */
 function validateEvent(event: SessionEvent, fail: InvariantFailure): void {
@@ -116,6 +157,7 @@ function validateEvent(event: SessionEvent, fail: InvariantFailure): void {
   if (event.type === 'kb/promote') validatePromote(event.data, fail)
   if (event.type === 'kb/injected') validateInjected(event.data, fail)
   if (event.type === 'kb/team-join') validateTeamJoin(event.data, fail)
+  if (event.type === 'kb/recap') validateRecap(event.data, fail)
 }
 
 /** Install validation for loaded and newly appended kb events. */

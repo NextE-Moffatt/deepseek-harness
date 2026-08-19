@@ -9,10 +9,11 @@
  * @module @deepseek-ai/dsh-kb-core/telemetry
  */
 
-import { appendFile, mkdir, readFile, writeFile } from 'node:fs/promises'
+import { appendFile, mkdir, writeFile } from 'node:fs/promises'
 import { dirname, resolve } from 'node:path'
 import type { Context } from '@deepseek-ai/cordis'
 import type { Session, SessionEvent, SessionId } from '@deepseek-ai/dsh-session'
+import { readJsonLines } from './jsonl.ts'
 import type { CardId } from './types.ts'
 import type { KbService } from './index.ts'
 
@@ -118,14 +119,7 @@ export class HeatLedger {
    * @returns the entries in file order.
    */
   async readAll(): Promise<HeatEntry[]> {
-    let text: string
-    try {
-      text = await readFile(this.path, 'utf8')
-    } catch (error) {
-      if ((error as NodeJS.ErrnoException).code === 'ENOENT') return []
-      throw error
-    }
-    return text.split('\n').filter(line => line !== '').map(line => JSON.parse(line) as HeatEntry)
+    return (await readJsonLines(this.path)) as HeatEntry[]
   }
 
   /**

@@ -14,12 +14,13 @@ import { afterEach, describe, expect, it } from 'vitest'
 import { Context, Service } from '@deepseek-ai/cordis'
 import Loader from '@deepseek-ai/cordis-plugin-loader'
 import Include from '@deepseek-ai/cordis-plugin-include'
-import { CallId } from '@deepseek-ai/dsh-llm'
+import { CallId, createUserMessage } from '@deepseek-ai/dsh-llm'
 import SessionStore, { Session, SessionId } from '@deepseek-ai/dsh-session'
 import AgentRegistry, { Inbox, emitAgentEvent } from '@deepseek-ai/dsh-agent'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import ToolRuntime from '@deepseek-ai/dsh-tools'
+import SkillRegistry from '@deepseek-ai/dsh-skill'
 import * as JobsLocal from '@deepseek-ai/dsh-jobs-local'
 import * as ToolJobs from '@deepseek-ai/dsh-tool-jobs'
 import type { ApprovalOutcome } from '@deepseek-ai/dsh-user-approval'
@@ -190,6 +191,8 @@ describe('kb-core real composition', () => {
       freshnessWarningDays: 14,
       freshnessIntervalDays: 0,
       teamWriteApproval: true,
+      recapPath: 'kb/.kb-recap.jsonl',
+      recapIntervalDays: 0,
       packs: [],
     })
     const description = ctx.tools.schemas().find(schema => schema.name === 'kb_write')!.description
@@ -593,5 +596,191 @@ describe('kb milestone-3 team composition', () => {
     // The personal draft survives the denied promotion.
     expect(await readFile(join(workspace!, 'kb/cards/P2', `${cardId}.md`), 'utf8')).toContain('状态: draft')
     await denyCtx.fiber.dispose()
+  })
+})
+
+/**
+ * Milestone-4 acceptance composition: a real workspace with a past
+ * blind-spot session, the recap scheduler, the skills registry, and the
+ * approval + jobs services mounted. The chain — recap scan (tool and
+ * scheduled job) → distillation through kb_write → the milestone-3 dual gate
+ * on the new draft — runs through the real Loader, and the session log alone
+ * reconstructs it.
+ */
+describe('kb milestone-4 recap and skills composition', () => {
+  /** An approval service that grants every team write. */
+  class AllowAllApproval extends Service {
+    constructor(ctx: Context) {
+      super(ctx, 'approval')
+    }
+
+    async request(): Promise<ApprovalOutcome> {
+      return 'allowed-once'
+    }
+  }
+
+  async function makeTeamRepo(): Promise<string> {
+    const repo = await mkdtemp(join(tmpdir(), 'dsh-kb-team-m4-'))
+    await execFileAsync('git', ['init', '-q', repo])
+    await execFileAsync('git', ['-C', repo, 'config', 'user.email', 'kb-test@example.com'])
+    await execFileAsync('git', ['-C', repo, 'config', 'user.name', 'kb test'])
+    return repo
+  }
+
+  async function recapBoot(): Promise<{ ctx: Context; teamRepo: string }> {
+    const teamRepo = await makeTeamRepo()
+    const ctx = await boot([
+      `    teamRepoPath: ${teamRepo}`,
+      '    recapIntervalDays: 7',
+    ], {
+      rows: [
+        "- name: 'test-allow-approval'",
+        "- name: '@deepseek-ai/dsh-jobs-local'",
+        "- name: '@deepseek-ai/dsh-tool-jobs'",
+        "- name: '@deepseek-ai/dsh-skill'",
+      ],
+      modules: [
+        ['test-allow-approval', { default: AllowAllApproval }],
+        ['@deepseek-ai/dsh-jobs-local', JobsLocal],
+        ['@deepseek-ai/dsh-tool-jobs', ToolJobs],
+        ['@deepseek-ai/dsh-skill', { default: SkillRegistry }],
+      ],
+    })
+    return { ctx, teamRepo }
+  }
+
+  /** A past workspace session that consumed knowledge but produced no card. */
+  function seedBlindSpot(ctx: Context, id: string, text: string): void {
+    const session = ctx.sessions.create(SessionId(id), { meta: { cwd: workspace! } })
+    session.append('kb/injected', {
+      pack: '告警处置',
+      cardIds: ['rule-20260818-100' as never],
+      sections: [{ name: 'rule-20260818-100', text: '标题：团队告警处置基线' }],
+    })
+    session.append('user/message', createUserMessage({ content: [{ type: 'text', text }], source: { kind: 'user' } }), { surfaceOp: 'append' })
+  }
+
+  it('recap scan → distillation draft → dual gate, replayable from the log; the job and skills mount', async () => {
+    const { ctx, teamRepo } = await recapBoot()
+    const caller = agent(ctx, workspace)
+
+    // 1. A past session already consumed knowledge without producing: seed it
+    // before session start, so the recap job's immediate scan surfaces it.
+    seedBlindSpot(ctx, 'm4-blind-a', '值班遇到告警 A，处置后没有沉淀。')
+    emitAgentEvent(ctx, caller, 'agent/session-start', { source: 'startup' })
+
+    // 2. A second blind spot appears after the job's tick: the recap tool
+    // surfaces it (the queue dedupes per session, so both get listed once).
+    seedBlindSpot(ctx, 'm4-blind-b', '值班遇到新告警类型，按基线处置后追加了防误报步骤。')
+    await new Promise(resolve => setTimeout(resolve, 50))
+    const scan = await ctx.tools.execute({
+      signal: new AbortController().signal,
+      callId: CallId('m4-recap'),
+      name: 'kb_recap',
+      arguments: {},
+      agent: caller,
+    })
+    expect(scan.isError).toBe(false)
+    if (scan.isError) throw new Error('m4 kb_recap failed')
+    const scanValue = scan.value as { total: number; listed: number; entries: Array<{ sessionId: string; excerpt: string }> }
+    expect(scanValue.total).toBe(1)
+    expect(scanValue.listed).toBe(1)
+    expect(scanValue.entries[0]!.sessionId).toBe('m4-blind-b')
+    expect(scanValue.entries[0]!.excerpt).toContain('防误报')
+    expect(await readFile(join(workspace!, 'kb/.kb-recap.jsonl'), 'utf8')).toContain('m4-blind-a')
+    expect(await readFile(join(workspace!, 'kb/.kb-recap.jsonl'), 'utf8')).toContain('m4-blind-b')
+    // The job's immediate tick and the tool call each logged their scan.
+    const recapEvents = caller.session.events.filter(event => event.type === 'kb/recap')
+    expect(recapEvents).toHaveLength(2)
+    expect(recapEvents[0]!.data.blindSpots[0]!.sessionId).toBe('m4-blind-a')
+    expect(recapEvents[1]!.data.blindSpots[0]!.sessionId).toBe('m4-blind-b')
+    expect(recapEvents[1]!.data.blindSpots[0]!.consumed).toEqual(['rule-20260818-100'])
+
+    // 3. A rescan lists nothing: the positions dedupe the queue.
+    const rescan = await ctx.tools.execute({
+      signal: new AbortController().signal,
+      callId: CallId('m4-recap-again'),
+      name: 'kb_recap',
+      arguments: {},
+      agent: caller,
+    })
+    expect(rescan.isError).toBe(false)
+    if (!rescan.isError) expect((rescan.value as { total: number }).total).toBe(0)
+
+    // 4. The scheduled recap job exists and its buffered output carries the
+    // blind spot its immediate scan surfaced.
+    const jobs = ctx.jobs.list(caller)
+    const recapJob = jobs.find(job => job.kind === 'kb-recap')
+    expect(recapJob).toBeDefined()
+    const jobRead = ctx.jobs.read(recapJob!.id, caller)
+    expect(jobRead.text).toContain('知识复盘扫描')
+    expect(jobRead.text).toContain('m4-blind-a')
+
+    // 5. The model distills a draft card from the recap material into P2.
+    const write = await ctx.tools.execute({
+      signal: new AbortController().signal,
+      callId: CallId('m4-write'),
+      name: 'kb_write',
+      arguments: {
+        tier: 'P2', type: 'rule', title: '新告警防误报步骤',
+        适用条件: '值班收到同类新告警', 核心结论: '按基线处置后追加防误报步骤。',
+        应做: ['追加防误报步骤'], 不应做: ['跳过基线'],
+        来源: 'session:m4-blind 复盘', 责任人: '张三', 标签: ['告警'],
+      },
+      agent: caller,
+    })
+    expect(write.isError).toBe(false)
+    if (write.isError) throw new Error('m4 distillation kb_write failed')
+    const cardId = (write.value as { id: string }).id
+
+    // 6. The new draft walks the milestone-3 dual gate: check → promote → review.
+    const gate = await ctx.tools.execute({
+      signal: new AbortController().signal,
+      callId: CallId('m4-gate'),
+      name: 'kb_gate_check',
+      arguments: { id: cardId, evidence: ['复盘确认', '复用 2 次'] },
+      agent: caller,
+    })
+    expect(gate.isError).toBe(false)
+    if (!gate.isError) expect((gate.value as { verdict: string }).verdict).toBe('PASS')
+    const promote = await ctx.tools.execute({
+      signal: new AbortController().signal,
+      callId: CallId('m4-promote'),
+      name: 'kb_team_promote',
+      arguments: { id: cardId, evidence: ['复盘确认'] },
+      agent: caller,
+    })
+    expect(promote.isError).toBe(false)
+    if (promote.isError) throw new Error('m4 promotion denied')
+    expect(await readFile(join(teamRepo, 'cards', `${cardId}.md`), 'utf8')).toContain('状态: pending')
+    const review = await ctx.tools.execute({
+      signal: new AbortController().signal,
+      callId: CallId('m4-review'),
+      name: 'kb_review',
+      arguments: { id: cardId, approved: true, note: '复核通过' },
+      agent: caller,
+    })
+    expect(review.isError).toBe(false)
+    if (!review.isError) expect(review.value).toMatchObject({ status: 'ready', changed: true })
+
+    // 7. The methodology skills are loadable by the model.
+    const summaries = await ctx.skills.list()
+    expect(summaries.some(summary => summary.name === 'kb-card-writing')).toBe(true)
+    const writing = await ctx.skills.get('kb-card-writing')
+    expect(writing).toBeDefined()
+    expect(writing!.content).toContain('检查清单')
+
+    // 8. Replay: a fresh session seeded with the log reconstructs the chain.
+    const replayed = Session.create(SessionId('m4-replay'), caller.session.events)
+    const replayRecaps = replayed.events.filter(event => event.type === 'kb/recap')
+    expect(replayRecaps).toHaveLength(2)
+    expect(replayRecaps[1]!.data.scanned).toEqual([{ sessionId: SessionId('m4-blind-b'), eventCount: 2 }])
+    expect(replayRecaps[0]!.data.scanned).toEqual([{ sessionId: SessionId('m4-blind-a'), eventCount: 2 }])
+    expect(replayed.events.some(event =>
+      event.type === 'kb/write' && event.data.id === cardId,
+    )).toBe(true)
+    expect(replayed.events.some(event =>
+      event.type === 'kb/promote' && event.data.id === cardId && event.data.to === 'ready',
+    )).toBe(true)
   })
 })

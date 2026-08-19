@@ -77,6 +77,7 @@ describe('tool registration', () => {
       'kb_write', 'kb_read', 'kb_search', 'kb_promote',
       'kb_gate_check', 'kb_team_promote', 'kb_team_read', 'kb_review',
       'kb_archive', 'kb_revive', 'kb_team_status', 'kb_team_commit', 'kb_freshness',
+      'kb_recap',
     ])
     const write = ctx.tools.schemas().find(schema => schema.name === 'kb_write')!
     const props = (write.parameters as { properties: Record<string, unknown> }).properties
@@ -214,6 +215,10 @@ describe('KbService config validation', () => {
     ['negative freshnessWarningDays', { freshnessWarningDays: -1 as unknown as number }, /freshnessWarningDays must be a non-negative integer/],
     ['fractional freshnessIntervalDays', { freshnessIntervalDays: 1.5 as unknown as number }, /freshnessIntervalDays must be a non-negative integer/],
     ['non-boolean teamWriteApproval', { teamWriteApproval: 'yes' as unknown as boolean }, /teamWriteApproval must be a boolean/],
+    ['recapPath with ..', { recapPath: '../up' }, /recapPath must be a non-empty relative path/],
+    ['blank recapPath', { recapPath: '' }, /recapPath must be a non-empty relative path/],
+    ['fractional recapIntervalDays', { recapIntervalDays: 1.5 as unknown as number }, /recapIntervalDays must be a non-negative integer/],
+    ['negative recapIntervalDays', { recapIntervalDays: -1 as unknown as number }, /recapIntervalDays must be a non-negative integer/],
   ])('fails loud on %s', async (_name, config, message) => {
     const ctx = new Context()
     await ctx.plugin(SessionStore)

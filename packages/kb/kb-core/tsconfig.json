@@ -34,6 +34,12 @@
     },
     {
       "path": "../../jobs/jobs"
+    },
+    {
+      "path": "../../session/session-persistence"
+    },
+    {
+      "path": "../../skill/skill"
     }
   ]
 }

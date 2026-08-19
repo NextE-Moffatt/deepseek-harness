@@ -2,7 +2,7 @@
 
 [English](kb.md) | 中文
 
-个人 + 团队知识库：`ctx.kb` 持有卡片读写、晋升状态机、带扫描降级契约的 FTS5 检索、增量采集、会话启动时的知识包注入、团队 git 库（cards/ + docs/）、双门禁治理与保鲜、热度遥测投影，并注册 `kb_write` / `kb_read` / `kb_search` / `kb_promote` / `kb_gate_check` / `kb_team_promote` / `kb_team_read` / `kb_review` / `kb_archive` / `kb_revive` / `kb_team_status` / `kb_team_commit` / `kb_freshness` 工具。[里程碑 1 Agent Note](../../.agents/notes/implemented/feature/2026-08-18-dsh-kb-package-group-milestone-1.md) 持有包组决策，[注入 Agent Note](../../.agents/notes/implemented/feature/2026-08-18-dsh-kb-inject.md) 持有知识包决策，[里程碑 3 Agent Note](../../.agents/notes/implemented/feature/2026-08-19-dsh-kb-milestone-3.md) 持有团队库、治理与遥测决策；本页记录 [`packages/kb/kb-core/src/types.ts`](../../packages/kb/kb-core/src/types.ts) 的确切类型。
+个人 + 团队知识库：`ctx.kb` 持有卡片读写、晋升状态机、带扫描降级契约的 FTS5 检索、增量采集、会话启动时的知识包注入、团队 git 库（cards/ + docs/）、双门禁治理与保鲜、热度遥测投影、复盘盲点扫描与其可选调度器、方法论技能，并注册 `kb_write` / `kb_read` / `kb_search` / `kb_promote` / `kb_gate_check` / `kb_team_promote` / `kb_team_read` / `kb_review` / `kb_archive` / `kb_revive` / `kb_team_status` / `kb_team_commit` / `kb_freshness` / `kb_recap` 工具。[里程碑 1 Agent Note](../../.agents/notes/implemented/feature/2026-08-18-dsh-kb-package-group-milestone-1.md) 持有包组决策，[注入 Agent Note](../../.agents/notes/implemented/feature/2026-08-18-dsh-kb-inject.md) 持有知识包决策，[里程碑 3 Agent Note](../../.agents/notes/implemented/feature/2026-08-19-dsh-kb-milestone-3.md) 持有团队库、治理与遥测决策，[里程碑 4 Agent Note](../../.agents/notes/implemented/feature/2026-08-19-dsh-kb-milestone-4-recap-and-skills.md) 持有复盘与技能决策；本页记录 [`packages/kb/kb-core/src/types.ts`](../../packages/kb/kb-core/src/types.ts) 的确切类型。
 
 ## Card model
 
@@ -65,7 +65,7 @@ type CardGrade = 'verified' | 'pending' | 'verify'
 
 ## Session events
 
-状态变更必须入日志：`kb/write` 记录工具执行的卡片写入，`kb/promote` 记录状态流转，`kb/team-join` 记录个人卡片经第一道门进入团队库，`kb/injected` 记录一次会话启动时的知识包注入。全部都在底层操作成功后追加，模型可见面可从 session 日志回放；`kb/injected` 携带完整渲染后的卡片节，`kb:pack` prompt section 仅凭日志即可重建。完整载荷声明见 [persistence catalog](../persistence-catalog.md#kbpromote--log-only)。
+状态变更必须入日志：`kb/write` 记录工具执行的卡片写入，`kb/promote` 记录状态流转，`kb/team-join` 记录个人卡片经第一道门进入团队库，`kb/injected` 记录一次会话启动时的知识包注入，`kb/recap` 记录一次复盘扫描的检查点推进（记录的位置与列出的盲点）。全部都在底层操作成功后追加，模型可见面可从 session 日志回放；`kb/injected` 携带完整渲染后的卡片节，`kb:pack` prompt section 仅凭日志即可重建。完整载荷声明见 [persistence catalog](../persistence-catalog.md#kbpromote--log-only)。
 
 ## Knowledge packs
 
@@ -112,6 +112,14 @@ interface PackSection {
 ## Telemetry
 
 消费热度从 session 日志投影，绝不另起第二事件流：每条 `kb/injected` 事件按卡片 id 向 workspace 的 JSONL 热度账本（`KbConfig.heatPath`，默认 `kb/.kb-heat.jsonl`）贡献一条账目，账本聚合成按卡片的行（次数、最近会话、知识包）。投影可仅凭 session 日志重建（对任意日志跑 `projectInjectedHeat` 即可复现条目）。热度喂给保鲜建议与未来的复活/晋升信号。
+
+## Recap
+
+复盘闭合"用即积累"的循环：`kb_recap`（以及 `KbConfig.recapIntervalDays` 下的可选每会话 `kb-recap` 任务）扫描 workspace 的会话日志，找出未记录的盲点——消费过知识（`kb/injected` 携带卡片 id）但未产出卡片（无 `kb/write`）的会话——列出最近发生者及其有界会话摘录，并把已列出的位置记入 `KbConfig.recapPath`（默认 `kb/.kb-recap.jsonl`）的检查点。每个盲点按会话长度只浮出一次，只有当该会话日志增长后才重新进入队列；`limit` 可翻页消化队列。复盘绝不伪造卡片内容：模型读清单与摘录后通过 `kb_write` 蒸馏成 P2 草稿，之后双门禁管线原样适用。`kb/recap` 事件记录每次扫描的检查点推进，对会话日志跑 `projectRecapScans` 即可重建检查点——`HeatLedger` 模式。
+
+## Skills
+
+挂载了 skills 服务时，三个方法论技能注册进 skills 注册表：`kb-card-writing`（卡片模板与 §4.3 质量检查清单，结构事实从解析器常量插值生成、不可能漂移）、`kb-recap-flow`（模式 B 步骤：何时跑 `kb_recap`、如何判断盲点、经 `kb_write` 蒸馏、再走双门禁）、`kb-pack-building`（`tags` / `tier` / `library` / `status` / `limit` 过滤语义）。没有 skills 服务的上下文记一次响亮错误并跳过。
 
 <!-- BEGIN GENERATED cordis-surface (gen-cordis-catalog.ts) — do not edit between markers -->
 
@@ -294,7 +302,18 @@ async heat(root: string): Promise<HeatRow[]>
  * @returns the review list.
  */
 freshnessReview(root: string, today?: string): Promise<FreshnessReview>
+
+/**
+ * Run one recap scan for one workspace: detect the unrecorded blind spots
+ * (sessions that consumed knowledge but produced no card), list up to
+ * `limit`, and record the listed positions (see {@link runRecapScan}). The
+ * caller (tool) appends the `kb/recap` event when positions were recorded.
+ * @param root - the session workspace root.
+ * @param limit - the listing cap (a positive integer).
+ * @returns the scan outcome.
+ */
+async recap(root: string, limit: number): Promise<RecapScanResult>
 ```
 
-Source: [`packages/kb/kb-core/src/index.ts:262`](../../packages/kb/kb-core/src/index.ts)
+Source: [`packages/kb/kb-core/src/index.ts:300`](../../packages/kb/kb-core/src/index.ts)
 <!-- END GENERATED cordis-surface -->

@@ -17,7 +17,7 @@ This table connects model-visible tool names to the plugin package and service s
 | --- | --- | --- | --- | --- | --- |
 | `@deepseek-ai/dsh-tool-ask-user` | `ask_user_question` | `ctx.tools`, `ctx.userQuestions` | `tool/call`, `tool/result after a UI/provider answers the question` | - | ask_user_question pauses the tool call until the active UI provider returns a human answer. |
 | `@deepseek-ai/dsh-tools` | `run_code` | `ctx.tools`, `ctx.codeRuntime (execution time)`, `ctx.systemPrompt` | `tool/call`, `one tool/code-dispatch-start + tool/code-dispatch pair per bridged sub-call`, `tool/result` | - | Owned by the tool registry as a reserved transport outside filterable capability layers under `mode: code` / `mode: both` (see the Code Mode Agent Note). Under `code` it is the registry's only wire contribution; the other visible capabilities are declared in a generated SDK section in the loaded runtime's language, and a program calls them through bindings scheduled under the native concurrency contract (submission-ordered starts and policy; concurrency-safe bodies overlap up to `maxParallelSubCalls`) that re-enter the complete guarded tool pipeline and link each nested execution to this outer result. |
-| `@deepseek-ai/dsh-kb-core` | `kb_archive`, `kb_freshness`, `kb_gate_check`, `kb_promote`, `kb_read`, `kb_review`, `kb_revive`, `kb_search`, `kb_team_commit`, `kb_team_promote`, `kb_team_read`, `kb_team_status`, `kb_write` | `ctx.tools`, `ctx.systemPrompt`, `a calling Agent with a session workspace (execution time)` | `tool/call`, `kb/write`, `kb/promote`, `tool/result` | - | The four kb tools are the personal-library consumer of the knowledge-base seam. kb_write creates draft cards in the session workspace (kb/cards/{tier}/{id}.md); kb_search runs FTS5 BM25 with an explicit scan-mode degradation when the index cannot open; kb_promote drives the promotion state machine (draft → pending → ready). |
+| `@deepseek-ai/dsh-kb-core` | `kb_archive`, `kb_freshness`, `kb_gate_check`, `kb_promote`, `kb_read`, `kb_recap`, `kb_review`, `kb_revive`, `kb_search`, `kb_team_commit`, `kb_team_promote`, `kb_team_read`, `kb_team_status`, `kb_write` | `ctx.tools`, `ctx.systemPrompt`, `a calling Agent with a session workspace (execution time)` | `tool/call`, `kb/write`, `kb/promote`, `tool/result` | - | The four kb tools are the personal-library consumer of the knowledge-base seam. kb_write creates draft cards in the session workspace (kb/cards/{tier}/{id}.md); kb_search runs FTS5 BM25 with an explicit scan-mode degradation when the index cannot open; kb_promote drives the promotion state machine (draft → pending → ready). |
 | `@deepseek-ai/dsh-plan-mode` | `exit_plan_mode` | `ctx.tools`, `ctx.systemPrompt`, `ctx.userQuestions (execution time, opportunistic)` | `tool/call`, `plan/mode inactive on an approved review`, `tool/result` | - | exit_plan_mode stays in the model-facing schema while planning is inactive so transitions add no tool-catalog churn on top of the plan-policy change. Its execute path rejects calls outside plan mode; in plan mode it presents the plan over the user-questions seam (approve / keep planning with feedback), and approval logs plan mode inactive at the step boundary. |
 | `@deepseek-ai/dsh-tool-bash` | `bash` | `ctx.tools`, `ctx.shell`, `ctx.systemPrompt`, `ctx.shellEnv`, `ctx.jobs at call time for run_in_background` | `tool/call`, `tool/result` | - | The bash tool is the model-facing consumer of the bash executor seam. A `run_in_background` run registers with the generic `ctx.jobs` runtime and is collected/stopped through the `job_*` tools from `@deepseek-ai/dsh-tool-jobs`; the `enableRunInBackground` config (default true) removes the parameter entirely when disabled. |
 | `@deepseek-ai/dsh-tool-pwsh` | `pwsh` | `ctx.tools`, `ctx.shell`, `ctx.systemPrompt`, `ctx.shellEnv`, `ctx.jobs at call time for run_in_background` | `tool/call`, `tool/result` | - | The pwsh tool is the PowerShell-dialect consumer of the bash executor seam for Windows compositions (a PowerShell executor such as `@deepseek-ai/dsh-pwsh-local` backs `ctx.shell`); it mirrors the bash tool call-for-call minus sandbox controls — `run_in_background` runs register with the generic `ctx.jobs` runtime and are collected/stopped through the `job_*` tools, and the managed `DSH_*` environment comes from `@deepseek-ai/dsh-shell-env`. Each call runs in a fresh process (no persistent PTY session), with native `C:\...` paths and `$env:NAME` variables. |
@@ -264,6 +264,24 @@ Source: [`packages/kb/kb-core/src/index.ts`](../packages/kb/kb-core/src/index.ts
   "required": [
     "id"
   ]
+}
+```
+
+Source: [`packages/kb/kb-core/src/index.ts`](../packages/kb/kb-core/src/index.ts)
+
+### `kb_recap`
+
+知识复盘扫描：找出本 workspace 中"消费过知识库但未沉淀卡片"的会话盲点（有 kb/injected 注入但无 kb/write），列出最近发生的盲点及其会话摘录。每个盲点只浮出一次；模型据此用 kb_write 把值得沉淀的内容蒸馏成 P2 草稿卡片，之后可走 kb_gate_check / kb_team_promote 晋升。
+
+```json
+{
+  "type": "object",
+  "properties": {
+    "limit": {
+      "type": "integer",
+      "description": "本次列出条数上限，1-50，默认 10；未列出的盲点下次扫描继续列出"
+    }
+  }
 }
 ```
 

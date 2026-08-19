@@ -21,16 +21,11 @@ import {
 import { PersonalCardStore } from './store.ts'
 import { TeamCardStore } from './team.ts'
 import { aggregateHeat, HeatLedger } from './telemetry.ts'
+import { todayString } from './date.ts'
 import type { KbService } from './index.ts'
 
 /** One day in milliseconds; the scheduler ticks daily and counts down days. */
 const DAY_MS = 86_400_000
-
-/** Local date as `YYYY-MM-DD`, the freshness reference date. */
-function todayString(): string {
-  const date = new Date()
-  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`
-}
 
 /**
  * Run the freshness scan for one workspace: every card of both libraries gets

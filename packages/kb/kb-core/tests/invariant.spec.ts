@@ -38,6 +38,13 @@ describe('kb event invariants', () => {
       sections: [{ name: 'rule-20250818-001', text: '标题：t\n适用条件：值班收到告警' }],
     })
     session.append('kb/team-join', { id: 'rule-20250818-001' as CardId, path: '/team/cards/rule-20250818-001.md', status: 'pending' })
+    session.append('kb/recap', {
+      scanDate: '2026-08-19',
+      scanned: [{ sessionId: session.id, eventCount: 4 }],
+      blindSpots: [{ sessionId: session.id, at: '2026-08-19T00:00:00.000Z', consumed: ['rule-20250818-001' as CardId] }],
+      total: 1,
+      listed: 1,
+    })
     await ctx.plugin(KbInvariant)
   })
 
@@ -65,6 +72,16 @@ describe('kb event invariants', () => {
     ['kb/team-join blank id', 'kb/team-join', { id: '', path: '/x', status: 'pending' }, /id must be a non-empty string/],
     ['kb/team-join blank path', 'kb/team-join', { id: 'a-1', path: '', status: 'pending' }, /path must be a non-empty string/],
     ['kb/team-join bad status', 'kb/team-join', { id: 'a-1', path: '/x', status: 'done' }, /status must be one of/],
+    ['kb/recap blank scanDate', 'kb/recap', { scanDate: '', scanned: [], blindSpots: [], total: 0, listed: 0 }, /scanDate must be a non-empty string/],
+    ['kb/recap scanned not array', 'kb/recap', { scanDate: '2026-08-19', scanned: {}, blindSpots: [], total: 0, listed: 0 }, /scanned must be an array/],
+    ['kb/recap blindSpots not array', 'kb/recap', { scanDate: '2026-08-19', scanned: [], blindSpots: {}, total: 0, listed: 0 }, /blindSpots must be an array/],
+    ['kb/recap blank scanned sessionId', 'kb/recap', { scanDate: '2026-08-19', scanned: [{ sessionId: '', eventCount: 1 }], blindSpots: [], total: 0, listed: 0 }, /scanned sessionId must be a non-empty string/],
+    ['kb/recap negative scanned eventCount', 'kb/recap', { scanDate: '2026-08-19', scanned: [{ sessionId: 's', eventCount: -1 }], blindSpots: [], total: 0, listed: 0 }, /scanned eventCount must be a non-negative integer/],
+    ['kb/recap blank blindSpots sessionId', 'kb/recap', { scanDate: '2026-08-19', scanned: [], blindSpots: [{ sessionId: '', at: 'a', consumed: [] }], total: 0, listed: 0 }, /blindSpots sessionId must be a non-empty string/],
+    ['kb/recap blank blindSpots at', 'kb/recap', { scanDate: '2026-08-19', scanned: [], blindSpots: [{ sessionId: 's', at: '', consumed: [] }], total: 0, listed: 0 }, /blindSpots at must be a non-empty string/],
+    ['kb/recap blank consumed item', 'kb/recap', { scanDate: '2026-08-19', scanned: [], blindSpots: [{ sessionId: 's', at: 'a', consumed: [''] }], total: 0, listed: 0 }, /blindSpots consumed must be an array of non-empty strings/],
+    ['kb/recap negative total', 'kb/recap', { scanDate: '2026-08-19', scanned: [], blindSpots: [], total: -1, listed: 0 }, /total must be a non-negative integer/],
+    ['kb/recap negative listed', 'kb/recap', { scanDate: '2026-08-19', scanned: [], blindSpots: [], total: 0, listed: -1 }, /listed must be a non-negative integer/],
   ])('rejects %s', async (_name, type, data, message) => {
     const ctx = await setup()
     expect(() => { ctx.emit('session/event', {} as Session, event(type as SessionEvent['type'], data)) }).toThrow(message)

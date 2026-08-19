@@ -6,6 +6,7 @@
  */
 
 import type { Branded } from '@deepseek-ai/dsh-brand'
+import type { SessionId } from '@deepseek-ai/dsh-session'
 
 /**
  * A knowledge-card id, unique across one library. The design's id format is
@@ -106,14 +107,34 @@ export interface PackSection {
   text: string
 }
 
+/** One recorded recap scan position: a session's event count at scan time. */
+export interface RecapPosition {
+  /** The scanned session. */
+  sessionId: SessionId
+  /** The session's event count when the position was recorded; positions only advance. */
+  eventCount: number
+}
+
+/** One blind spot surfaced by a recap scan, without the derived excerpt. */
+export interface RecapBlindSpot {
+  /** The blind-spot session. */
+  sessionId: SessionId
+  /** The session's last event time (ISO), the recency sort key. */
+  at: string
+  /** The card ids the session consumed through `kb/injected`, sorted. */
+  consumed: CardId[]
+}
+
 /**
  * The `kb/*` session events (model-visible state changes are logged, per the
  * model-visible ⟺ logged invariant). `kb/write` records a card write performed
  * by a tool; `kb/promote` records a lifecycle transition; `kb/injected`
  * records one knowledge-pack injection, carrying the full rendered content so
- * the `kb:pack` prompt section replays from the log alone. Tools append these
- * after the underlying file operation succeeds; the injection listener appends
- * `kb/injected` synchronously at `agent/session-start`.
+ * the `kb:pack` prompt section replays from the log alone; `kb/recap` records
+ * one recap scan's checkpoint advancement (the listed blind spots and their
+ * recorded positions) so the recap queue replays from the log alone. Tools
+ * append these after the underlying file operation succeeds; the injection
+ * listener appends `kb/injected` synchronously at `agent/session-start`.
  */
 declare module '@deepseek-ai/dsh-session/types' {
   interface SessionEventMap {
@@ -146,6 +167,17 @@ declare module '@deepseek-ai/dsh-session/types' {
       id: CardId
       path: string
       status: CardStatus
+    }
+    /** One recap scan recorded its checkpoint advancement: the positions
+     * appended (`scanned`, the checkpoint's rebuild face) and the listed blind
+     * spots (`blindSpots`, the surfaced queue's replayable facts; excerpts are
+     * pure functions of each referenced session's own log). */
+    'kb/recap': {
+      scanDate: string
+      scanned: RecapPosition[]
+      blindSpots: RecapBlindSpot[]
+      total: number
+      listed: number
     }
   }
 }

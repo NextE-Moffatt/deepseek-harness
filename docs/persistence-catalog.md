@@ -487,7 +487,7 @@ Source: [`packages/hooks/hook-protocol/src/types.ts:31`](../packages/hooks/hook-
 }
 ```
 
-Source: [`packages/kb/kb-core/src/types.ts:136`](../packages/kb/kb-core/src/types.ts)
+Source: [`packages/kb/kb-core/src/types.ts:157`](../packages/kb/kb-core/src/types.ts)
 
 <a id="kbpromote--log-only"></a>
 
@@ -499,7 +499,27 @@ Source: [`packages/kb/kb-core/src/types.ts:136`](../packages/kb/kb-core/src/type
 'kb/promote': { id: CardId; from: CardStatus; to: CardStatus; evidence?: string }
 ```
 
-Source: [`packages/kb/kb-core/src/types.ts:132`](../packages/kb/kb-core/src/types.ts)
+Source: [`packages/kb/kb-core/src/types.ts:153`](../packages/kb/kb-core/src/types.ts)
+
+<a id="kbrecap--log-only"></a>
+
+#### `kb/recap` — log-only
+
+```ts persistence-catalog
+/** One recap scan recorded its checkpoint advancement: the positions
+ * appended (`scanned`, the checkpoint's rebuild face) and the listed blind
+ * spots (`blindSpots`, the surfaced queue's replayable facts; excerpts are
+ * pure functions of each referenced session's own log). */
+'kb/recap': {
+  scanDate: string
+  scanned: RecapPosition[]
+  blindSpots: RecapBlindSpot[]
+  total: number
+  listed: number
+}
+```
+
+Source: [`packages/kb/kb-core/src/types.ts:175`](../packages/kb/kb-core/src/types.ts)
 
 <a id="kbteam-join--log-only"></a>
 
@@ -517,7 +537,7 @@ Source: [`packages/kb/kb-core/src/types.ts:132`](../packages/kb/kb-core/src/type
 }
 ```
 
-Source: [`packages/kb/kb-core/src/types.ts:145`](../packages/kb/kb-core/src/types.ts)
+Source: [`packages/kb/kb-core/src/types.ts:166`](../packages/kb/kb-core/src/types.ts)
 
 <a id="kbwrite--log-only"></a>
 
@@ -536,7 +556,7 @@ Source: [`packages/kb/kb-core/src/types.ts:145`](../packages/kb/kb-core/src/type
 }
 ```
 
-Source: [`packages/kb/kb-core/src/types.ts:122`](../packages/kb/kb-core/src/types.ts)
+Source: [`packages/kb/kb-core/src/types.ts:143`](../packages/kb/kb-core/src/types.ts)
 
 ### `llm/*`
 

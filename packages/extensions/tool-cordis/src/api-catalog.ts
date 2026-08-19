@@ -913,6 +913,12 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
         parameters: [{ name: 'root', description: 'the session workspace root.' }, { name: 'today', description: 'the reference date `YYYY-MM-DD` (defaults to today, local).' }],
         returns: 'the review list.',
       },
+      {
+        signature: 'async recap(root: string, limit: number): Promise<RecapScanResult>',
+        description: 'Run one recap scan for one workspace: detect the unrecorded blind spots (sessions that consumed knowledge but produced no card), list up to `limit`, and record the listed positions (see runRecapScan). The caller (tool) appends the `kb/recap` event when positions were recorded.',
+        parameters: [{ name: 'root', description: 'the session workspace root.' }, { name: 'limit', description: 'the listing cap (a positive integer).' }],
+        returns: 'the scan outcome.',
+      },
     ],
   },
   {
@@ -2862,6 +2868,10 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export interface BashEnvVariableInfo extends BashEnvVariable {\n    contributor: string;\n    key: DshEnvironmentKey;\n}',
   },
   {
+    name: 'BlindSpotEntry',
+    declaration: 'export interface BlindSpotEntry {\n    sessionId: SessionId;\n    at: string;\n    consumed: CardId[];\n    excerpt: string;\n}',
+  },
+  {
     name: 'Branded',
     declaration: 'export type Branded<B extends string> = string & {\n    readonly [BRAND]: B;\n};',
   },
@@ -3770,6 +3780,14 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export type ReasoningEffortId = Branded<\'ReasoningEffortId\'>;',
   },
   {
+    name: 'RecapPosition',
+    declaration: 'export interface RecapPosition {\n    sessionId: SessionId;\n    eventCount: number;\n}',
+  },
+  {
+    name: 'RecapScanResult',
+    declaration: 'export interface RecapScanResult {\n    scanDate: string;\n    total: number;\n    entries: BlindSpotEntry[];\n    recorded: RecapPosition[];\n}',
+  },
+  {
     name: 'RedactedSecret',
     declaration: 'export interface RedactedSecret {\n    path: string[];\n    set: boolean;\n}',
   },
@@ -3803,7 +3821,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'ResolvedKbConfig',
-    declaration: 'export interface ResolvedKbConfig {\n    cardsPath: string;\n    indexPath: string;\n    cardTtlDays: number;\n    teamRepoPath?: string;\n    heatPath: string;\n    freshnessWarningDays: number;\n    freshnessIntervalDays: number;\n    teamWriteApproval: boolean;\n    packs: KnowledgePack[];\n}',
+    declaration: 'export interface ResolvedKbConfig {\n    cardsPath: string;\n    indexPath: string;\n    cardTtlDays: number;\n    teamRepoPath?: string;\n    heatPath: string;\n    freshnessWarningDays: number;\n    freshnessIntervalDays: number;\n    teamWriteApproval: boolean;\n    recapPath: string;\n    recapIntervalDays: number;\n    packs: KnowledgePack[];\n}',
   },
   {
     name: 'ResolvedNormalRetryPolicy',

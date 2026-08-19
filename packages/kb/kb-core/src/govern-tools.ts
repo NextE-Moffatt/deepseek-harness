@@ -16,6 +16,7 @@ import type { Context } from '@deepseek-ai/cordis'
 import type { ToolExecution } from '@deepseek-ai/dsh-tools'
 import { defineTool } from '@deepseek-ai/dsh-tools'
 import { serializeCard } from './card.ts'
+import { todayString } from './date.ts'
 import { evaluateGate, renderReviewList, type ReviewEntry } from './govern.ts'
 import type { KbService } from './index.ts'
 import { applyTransition, cardReadValue, optionalText, requiredText, sessionRoot } from './tools.ts'
@@ -442,10 +443,4 @@ export function registerGovernTools(ctx: Context, kb: KbService): void {
     presentCall: () => ({ card: 'generic', title: '知识保鲜扫描', kind: 'other' }),
     presentResult: (_args, result) => ({ card: 'generic', title: '保鲜扫描结果', content: result.content }),
   }))
-}
-
-/** Local date as `YYYY-MM-DD`, the scan-date face of the freshness tool. */
-function todayString(): string {
-  const date = new Date()
-  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`
 }

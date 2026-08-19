@@ -1,11 +1,13 @@
 /**
- * `ctx.kb`: the milestone-1 knowledge-base service — card model, personal
- * library storage (`<workspace>/<cardsPath>/<tier>/<id>.md`), the promotion
- * state machine, FTS5 search with the explicit scan degradation contract,
- * incremental ingest, and the `kb_write` / `kb_read` / `kb_search` /
- * `kb_promote` tools. Tools append the `kb/*` session events; the service
- * methods stay session-free so future plugins (governance, recap) can drive
- * the same seam.
+ * `ctx.kb`: the knowledge-base service — card model, personal library storage
+ * (`<workspace>/<cardsPath>/<tier>/<id>.md`), the promotion state machine,
+ * FTS5 search with the explicit scan degradation contract, incremental
+ * ingest, the `kb_write` / `kb_read` / `kb_search` / `kb_promote` tools, the
+ * team git library with the dual-gate governance and freshness tool sets, the
+ * heat telemetry projection, the recap blind-spot scan (`kb_recap` plus the
+ * optional scheduler), and the kb methodology skills. Tools append the `kb/*`
+ * session events; the service methods stay session-free so future plugins can
+ * drive the same seam.
  * @module @deepseek-ai/dsh-kb-core
  */
 
@@ -19,7 +21,10 @@ import { importDir as runImport, type ImportOptions, type IngestResult } from '.
 import { registerKbInjection } from './inject.ts'
 import { assertTransition } from './lifecycle.ts'
 import { resolvePacks } from './pack.ts'
+import { runRecapScan, registerRecapSchedule, type RecapScanResult } from './recap.ts'
+import { registerRecapTools } from './recap-tools.ts'
 import { CardIndex, openCardIndex, scanSearch, type SearchOutcome, type SearchRequest } from './search.ts'
+import { registerKbSkills } from './skills.ts'
 import { PersonalCardStore, type CardFileInfo } from './store.ts'
 import { GitRunner } from './gitops.ts'
 import { TeamCardStore, type TeamCardFileInfo } from './team.ts'
@@ -60,6 +65,19 @@ export type {
 export { createFreshnessProducer, freshnessReview, freshnessReviewText, registerFreshnessSchedule } from './freshness.ts'
 export { aggregateHeat, HeatLedger, projectInjectedHeat, registerKbTelemetry } from './telemetry.ts'
 export type { HeatEntry, HeatRow } from './telemetry.ts'
+export {
+  DEFAULT_RECAP_LIMIT, RECAP_EXCERPT_MAX_CHARS, RecapCheckpoint,
+  consumedCardIds, consumedKnowledge, createRecapProducer, detectBlindSpots,
+  isBlindSpot, lastEventTime, liveRecapLogSource, mergePositions,
+  producedCard, projectRecapScans, recapEventPayload, registerRecapSchedule,
+  renderRecapList, renderSessionExcerpt, runRecapScan,
+} from './recap.ts'
+export type { BlindSpotEntry, RecapCandidate, RecapLogSource, RecapScanResult, RecapSessionLog } from './recap.ts'
+export { registerRecapTools } from './recap-tools.ts'
+export {
+  CARD_WRITING_SKILL, PACK_BUILDING_SKILL, RECAP_FLOW_SKILL,
+  cardWritingSkillContent, packBuildingSkillContent, recapFlowSkillContent, registerKbSkills,
+} from './skills.ts'
 export { injectPacks, registerKbInjection } from './inject.ts'
 export { importDir } from './ingest.ts'
 export type { ImportOptions, IngestResult } from './ingest.ts'
@@ -91,6 +109,10 @@ export interface KbConfig {
   freshnessIntervalDays?: number
   /** Route team-library write tools through the approval `ask` gate (default true). */
   teamWriteApproval?: boolean
+  /** Recap checkpoint path relative to the session workspace root (default `kb/.kb-recap.jsonl`). */
+  recapPath?: string
+  /** Days between scheduled recap scans; 0 disables the scheduler (default 0). */
+  recapIntervalDays?: number
   /** Knowledge packs injected at session start (default none). */
   packs?: KnowledgePack[]
 }
@@ -113,6 +135,10 @@ export interface ResolvedKbConfig {
   freshnessIntervalDays: number
   /** Whether team-library write tools route through the approval `ask` gate. */
   teamWriteApproval: boolean
+  /** Recap checkpoint path relative to the session workspace root. */
+  recapPath: string
+  /** Days between scheduled recap scans; 0 disables the scheduler. */
+  recapIntervalDays: number
   /** Validated knowledge packs injected at session start. */
   packs: KnowledgePack[]
 }
@@ -123,6 +149,8 @@ export const DEFAULT_CARDS_PATH = 'kb/cards'
 export const DEFAULT_INDEX_PATH = 'kb/.kb-index.sqlite'
 /** Default heat ledger path relative to the session workspace root. */
 export const DEFAULT_HEAT_PATH = 'kb/.kb-heat.jsonl'
+/** Default recap checkpoint path relative to the session workspace root. */
+export const DEFAULT_RECAP_PATH = 'kb/.kb-recap.jsonl'
 /** Default 有效期 horizon in days. */
 export const DEFAULT_CARD_TTL_DAYS = 90
 /** Default freshness warning window in days. */
@@ -150,6 +178,8 @@ export function resolveConfig(config: KbConfig): ResolvedKbConfig {
   const freshnessWarningDays = config.freshnessWarningDays ?? DEFAULT_FRESHNESS_WARNING_DAYS
   const freshnessIntervalDays = config.freshnessIntervalDays ?? 0
   const teamWriteApproval = config.teamWriteApproval ?? DEFAULT_TEAM_WRITE_APPROVAL
+  const recapPath = config.recapPath ?? DEFAULT_RECAP_PATH
+  const recapIntervalDays = config.recapIntervalDays ?? 0
   const packs = resolvePacks(config.packs)
   if (typeof cardsPath !== 'string' || cardsPath === '' || !isSafeRelativePath(cardsPath)) {
     throw new Error(`KbConfig.cardsPath must be a non-empty relative path without "..", got ${JSON.stringify(cardsPath)}`)
@@ -163,6 +193,9 @@ export function resolveConfig(config: KbConfig): ResolvedKbConfig {
   if (typeof heatPath !== 'string' || heatPath === '' || !isSafeRelativePath(heatPath)) {
     throw new Error(`KbConfig.heatPath must be a non-empty relative path without "..", got ${JSON.stringify(heatPath)}`)
   }
+  if (typeof recapPath !== 'string' || recapPath === '' || !isSafeRelativePath(recapPath)) {
+    throw new Error(`KbConfig.recapPath must be a non-empty relative path without "..", got ${JSON.stringify(recapPath)}`)
+  }
   if (!Number.isSafeInteger(cardTtlDays) || cardTtlDays < 1) {
     throw new Error(`KbConfig.cardTtlDays must be a positive integer, got ${JSON.stringify(cardTtlDays)}`)
   }
@@ -171,6 +204,9 @@ export function resolveConfig(config: KbConfig): ResolvedKbConfig {
   }
   if (!Number.isSafeInteger(freshnessIntervalDays) || freshnessIntervalDays < 0) {
     throw new Error(`KbConfig.freshnessIntervalDays must be a non-negative integer, got ${JSON.stringify(freshnessIntervalDays)}`)
+  }
+  if (!Number.isSafeInteger(recapIntervalDays) || recapIntervalDays < 0) {
+    throw new Error(`KbConfig.recapIntervalDays must be a non-negative integer, got ${JSON.stringify(recapIntervalDays)}`)
   }
   if (typeof teamWriteApproval !== 'boolean') {
     throw new Error(`KbConfig.teamWriteApproval must be a boolean, got ${JSON.stringify(teamWriteApproval)}`)
@@ -184,6 +220,8 @@ export function resolveConfig(config: KbConfig): ResolvedKbConfig {
     freshnessWarningDays,
     freshnessIntervalDays,
     teamWriteApproval,
+    recapPath,
+    recapIntervalDays,
     packs,
   }
 }
@@ -285,6 +323,9 @@ export class KbService extends Service {
     registerTeamWriteApproval(ctx, this)
     registerKbTelemetry(ctx, this)
     registerFreshnessSchedule(ctx, this)
+    registerRecapTools(ctx, this)
+    registerRecapSchedule(ctx, this)
+    registerKbSkills(ctx)
   }
 
   /** The personal library store for one workspace root. */
@@ -595,6 +636,19 @@ export class KbService extends Service {
    */
   freshnessReview(root: string, today?: string): Promise<FreshnessReview> {
     return freshnessReview(this.ctx, this, root, today)
+  }
+
+  /**
+   * Run one recap scan for one workspace: detect the unrecorded blind spots
+   * (sessions that consumed knowledge but produced no card), list up to
+   * `limit`, and record the listed positions (see {@link runRecapScan}). The
+   * caller (tool) appends the `kb/recap` event when positions were recorded.
+   * @param root - the session workspace root.
+   * @param limit - the listing cap (a positive integer).
+   * @returns the scan outcome.
+   */
+  async recap(root: string, limit: number): Promise<RecapScanResult> {
+    return runRecapScan(this.ctx, this, root, limit)
   }
 }
 
