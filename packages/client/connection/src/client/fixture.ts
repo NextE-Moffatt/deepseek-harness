@@ -3026,12 +3026,22 @@ function createFixtureWorld(options: FixtureOptions): FixtureWorld {
     },
     card: {
       library: 'personal', tier: 'P2', path: '/ws/kb/cards/P2/rule-20260818-001.md', grade: 'pending',
+      mtime: 1_721_000_000_000, size: 512,
       card: {
         id: 'rule-20260818-001', type: 'rule', title: '告警处置标准', 库: 'personal', 状态: 'draft',
         适用条件: '值班收到告警', 核心结论: '先确认影响面，再处置。', 应做: ['确认影响面'], 不应做: ['直接重启'],
         来源: 'https://example.com/MR-1', 责任人: '本人', 有效期: '2026-08-19', 标签: ['告警'],
       },
     },
+  }
+
+  /**
+   * The fixture's current card view: `kbWorkbench/card` serves it and
+   * `kbWorkbench/edit` mutates it, so the assembled edit journey renders the
+   * saved title after the detail refresh.
+   */
+  const kbWorkbenchCardState: { value: typeof kbWorkbenchFixture.card } = {
+    value: { ...kbWorkbenchFixture.card, card: { ...kbWorkbenchFixture.card.card } },
   }
 
   const rpc: ClientConnectionRpc = {
@@ -3070,7 +3080,25 @@ function createFixtureWorld(options: FixtureOptions): FixtureWorld {
         case 'kbWorkbench/overview':
           return Promise.resolve({ ok: true, value: kbWorkbenchFixture.overview })
         case 'kbWorkbench/card':
-          return Promise.resolve({ ok: true, value: kbWorkbenchFixture.card })
+          return Promise.resolve({ ok: true, value: kbWorkbenchCardState.value })
+        case 'kbWorkbench/edit': {
+          // Mirror the host editCard's clear semantics: an empty 反例 / 来源
+          // removes the field instead of storing a blank.
+          const patch = (args as { patch?: Record<string, unknown> }).patch ?? {}
+          const cleared = ['反例', '来源'].filter(field => patch[field] === '')
+          const base = Object.fromEntries(
+            Object.entries(kbWorkbenchCardState.value.card).filter(([field]) => !cleared.includes(field)),
+          )
+          const applied = {
+            ...base,
+            ...Object.fromEntries(Object.entries(patch).filter(([, value]) => value !== '')),
+          }
+          kbWorkbenchCardState.value = {
+            ...kbWorkbenchCardState.value,
+            card: applied as typeof kbWorkbenchFixture.card.card,
+          }
+          return Promise.resolve({ ok: true, value: kbWorkbenchCardState.value })
+        }
         case 'kbWorkbench/promote':
           return Promise.resolve({ ok: true, value: { ...kbWorkbenchFixture.card.card, 状态: 'pending' } })
         case 'kbWorkbench/archive':

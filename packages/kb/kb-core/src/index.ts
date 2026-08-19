@@ -17,6 +17,9 @@ import { freshnessReview, registerFreshnessSchedule } from './freshness.ts'
 import { evaluateGate } from './govern.ts'
 import type { FreshnessReview } from './govern.ts'
 import { registerGovernTools, registerTeamWriteApproval } from './govern-tools.ts'
+import { applyCardEdit, changedFields, validateEditPatch } from './edit.ts'
+import type { ValidatedCardEditPatch } from './edit.ts'
+import { compactDateKey, dateStringInDays } from './date.ts'
 import { importDir as runImport, type ImportOptions, type IngestResult } from './ingest.ts'
 import { registerKbInjection } from './inject.ts'
 import { assertTransition } from './lifecycle.ts'
@@ -30,10 +33,10 @@ import { GitRunner } from './gitops.ts'
 import { TeamCardStore, type TeamCardFileInfo } from './team.ts'
 import { aggregateHeat, HeatLedger, registerKbTelemetry, type HeatRow } from './telemetry.ts'
 import { registerKbTools } from './tools.ts'
-import type { Card, CardId, CardStatus, CardTier, CardType, KnowledgePack } from './types.ts'
+import type { Card, CardEditPatch, CardId, CardLibrary, CardStatus, CardTier, CardType, KnowledgePack } from './types.ts'
 
 export type * from './types.ts'
-export { todayString } from './date.ts'
+export { compactDateKey, dateStringInDays, todayString } from './date.ts'
 export {
   CARD_LIBRARIES, CARD_STATUSES, CARD_TIERS, CARD_TYPES,
   isCardLibrary, isCardStatus, isCardTier, isCardType, isValidDateString,
@@ -52,6 +55,8 @@ export {
 export type { SearchHit, SearchOutcome, SearchRequest } from './search.ts'
 export { PersonalCardStore } from './store.ts'
 export type { CardFileInfo, CardParseFailure } from './store.ts'
+export { applyCardEdit, changedFields, validateEditPatch } from './edit.ts'
+export type { ValidatedCardEditPatch } from './edit.ts'
 export { TeamCardStore } from './team.ts'
 export type { TeamCardFileInfo } from './team.ts'
 export { GitRunner } from './gitops.ts'
@@ -227,18 +232,6 @@ export function resolveConfig(config: KbConfig): ResolvedKbConfig {
   }
 }
 
-/** Local date as `YYYYMMDD`, the id-sequence key. */
-function compactDateKey(date: Date): string {
-  return `${date.getFullYear()}${String(date.getMonth() + 1).padStart(2, '0')}${String(date.getDate()).padStart(2, '0')}`
-}
-
-/** Date `days` from today as `YYYY-MM-DD`, the 有效期 default. */
-function dateStringInDays(days: number): string {
-  const date = new Date()
-  date.setDate(date.getDate() + days)
-  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`
-}
-
 /** Input of a card write; values are validated at the tool boundary. */
 export interface WriteCardInput {
   /** Tier directory to write into. */
@@ -291,6 +284,30 @@ export interface PromoteResult {
   evidence?: string
   /** Absolute path of the rewritten file. */
   path: string
+}
+
+/** Edit options: the optimistic concurrency guard and the team approval signal. */
+export interface EditCardOptions {
+  /** Expected on-disk file identity (mtime ms + size) observed when the card
+   * was read; a mismatch fails the edit with a conflict error. */
+  expected?: { mtime: number; size: number }
+  /** Explicit approval for a team-card edit when `KbConfig.teamWriteApproval`
+   * is true — the human workbench's approval signal carried with the operation. */
+  approved?: boolean
+}
+
+/** The outcome of a card-content edit. */
+export interface CardEditResult {
+  /** The card in its edited state. */
+  card: Card
+  /** The library the card lives in. */
+  library: CardLibrary
+  /** The tier directory for personal cards, or `team` for team cards. */
+  tier: CardTier | 'team'
+  /** Absolute path of the rewritten file. */
+  path: string
+  /** The changed content fields; empty when the edit changed nothing (no write). */
+  fields: string[]
 }
 
 /**
@@ -472,13 +489,78 @@ export class KbService extends Service {
   }
 
   /**
+   * Edit one card's content across the personal and team libraries: validate
+   * the patch at the wire boundary, apply it preserving `id` / `库` / `状态`,
+   * guard against concurrent modification via the expected file identity, and
+   * rewrite in place. A team-card edit requires `options.approved` when
+   * `KbConfig.teamWriteApproval` is set. The caller (workbench) appends
+   * `kb/edit` when the result's `fields` are non-empty.
+   * @param root - the session workspace root.
+   * @param id - the card id.
+   * @param patch - the content-field patch.
+   * @param options - the optimistic guard and the team approval signal.
+   * @returns the edited card with the changed field names.
+   */
+  async editCard(root: string, id: CardId, patch: CardEditPatch, options?: EditCardOptions): Promise<CardEditResult> {
+    const validated = validateEditPatch(patch)
+    const personal = await this.store(root).find(id)
+    if (personal !== undefined) {
+      return this.planAndWrite(root, personal.card, personal.tier, personal.mtime, personal.size, validated, options, false)
+    }
+    const team = await this.teamCard(root, id)
+    if (team !== undefined) {
+      return this.planAndWrite(root, team.card, 'team', team.mtime, team.size, validated, options, true)
+    }
+    throw new Error(`card not found: ${id}`)
+  }
+
+  /** Shared edit application: diff, conflict guard, team approval gate, and the rewrite. */
+  private async planAndWrite(
+    root: string,
+    card: Card,
+    tier: CardTier | 'team',
+    mtime: number,
+    size: number,
+    patch: ValidatedCardEditPatch,
+    options: EditCardOptions | undefined,
+    isTeam: boolean,
+  ): Promise<CardEditResult> {
+    const after = applyCardEdit(card, patch)
+    const fields = changedFields(card, after)
+    if (fields.length === 0) {
+      return {
+        card: after,
+        library: card.库,
+        tier,
+        path: tier === 'team' ? this.teamStore(root).cardPath(card.id) : this.store(root).cardPath(tier, card.id),
+        fields,
+      }
+    }
+    const expected = options?.expected
+    if (expected !== undefined && (mtime !== expected.mtime || size !== expected.size)) {
+      throw new Error(`卡片已被其他会话修改，请刷新后重试（${card.id}）`)
+    }
+    if (isTeam && this.config.teamWriteApproval && options?.approved !== true) {
+      throw new Error(`团队卡片编辑需经审批（KbConfig.teamWriteApproval）：${card.id}`)
+    }
+    const path = tier === 'team'
+      ? await this.teamStore(root).rewrite(after)
+      : await this.store(root).rewrite(after, tier)
+    return { card: after, library: card.库, tier, path, fields }
+  }
+
+  /**
    * Run the incremental ingest over a source directory into the library at
-   * `options.root` (see {@link importDir}).
+   * `options.root` (see {@link importDir}). A wrapped card's 有效期 defaults
+   * to `now + cardTtlDays` when the options omit it.
    * @param options - import options.
    * @returns the import outcome.
    */
   importDir(options: ImportOptions): Promise<IngestResult> {
-    return runImport(this.store(options.root), options)
+    return runImport(this.store(options.root), {
+      ...options,
+      cardTtlDays: options.cardTtlDays ?? this.config.cardTtlDays,
+    })
   }
 
   /**

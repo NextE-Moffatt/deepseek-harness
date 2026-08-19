@@ -14,6 +14,7 @@
 | `readCard(root, id)` | 跨层级读取一张卡片；不存在时抛错。 |
 | `search(root, request)` | FTS5 BM25 检索，一个工作区根一个索引（`(library, id)` 键），同时覆盖个人库与团队库 + 结构化过滤；索引无法打开时对两库显式降级为 `mode: 'scan'`。 |
 | `promote(root, id, target, evidence?)` | 校验状态机、重写卡片文件并返回新状态。 |
+| `editCard(root, id, patch, options?)` | 跨两库编辑一张卡片的内容：在 wire 边界校验 patch、保留 `id` / `库` / `状态` 应用、经预期文件身份做并发冲突守卫并原位重写；`teamWriteApproval` 下团队编辑需 `options.approved`。 |
 | `promoteToTeam(root, id, evidence)` | 第一道门准入：强制执行门禁规则、把个人草稿以 `pending` 移入团队库并删除个人文件。 |
 | `reviewTeam(root, id, approved)` | 第二道门：复核通过时团队 `pending → ready`；不通过则不变更。 |
 | `archiveTeam(root, id)` / `reviveTeam(root, id)` | 退场/恢复边：`ready|revived → archived` 与 `archived → revived`。 |
@@ -23,7 +24,7 @@
 | `heat(root)` | 热度账本聚合：哪些卡片被哪些会话消费。 |
 | `freshnessReview(root, today?)` | 待复核清单：已过期与即将过期的卡片，附热度与建议。 |
 | `recap(root, limit)` | 运行一次复盘扫描：找出未记录的盲点、列出至多 `limit` 条并把已列出的位置记入检查点。 |
-| `importDir(options)` | 增量采集：从源目录导入卡片形 `*.md`，带检查点与去重。 |
+| `importDir(options)` | 增量采集：从源目录导入卡片形 `*.md`，把无 front matter 的 raw markdown 笔记 wrap 成草稿卡（确定性字段推断），跳过不可 wrap 的文件，经检查点去重；非 markdown 文件跳过并计数。 |
 
 服务方法不持有 session；`kb/*` session 事件由工具追加。后续模块（web 工作台）复用同一接缝。
 
@@ -55,7 +56,7 @@
 
 ## Events
 
-`kb/write`（工具写入卡片文件）、`kb/promote`（状态流转）、`kb/team-join`（个人卡片经第一道门进入团队库）、`kb/injected`（一次知识包注入）与 `kb/recap`（一次复盘扫描的检查点推进）扩展 `SessionEventMap`，均在底层操作成功后追加，模型可见面可从 session 日志回放。
+`kb/write`（工具写入卡片文件）、`kb/edit`（工作台或未来编辑消费者修改卡片内容字段）、`kb/promote`（状态流转）、`kb/team-join`（个人卡片经第一道门进入团队库）、`kb/injected`（一次知识包注入）与 `kb/recap`（一次复盘扫描的检查点推进）扩展 `SessionEventMap`，均在底层操作成功后追加，模型可见面可从 session 日志回放。
 
 ## Knowledge packs
 
@@ -64,7 +65,7 @@
 ## Extension points
 
 - **检索后端**：`CardIndex`（FTS5 `unicode61`、BM25、按库根目录一个库）可替换；降级契约（`mode: 'scan'` + 说明，绝不编造结果）是接口的一部分。中文按字切分，子串查询无需分词词典。
-- **采集接缝**：`importDir` 是模式 E 的最小实现；`ctx.jobs` 调度与原始笔记包装随真实连接器落地。
+- **采集接缝**：`importDir` 是模式 E 的最小实现：导入卡片形文件、把 raw markdown 笔记 wrap 成草稿卡并跳过不可 wrap 的文件；`ctx.jobs` 调度随真实连接器落地。
 - **包选择**：`selectPackCards`（纯函数）是横跨两库的订阅过滤；未来 `kb_pack` 工具或 web 工作台出现真实消费者时再包装。
 - **治理逻辑**：`evaluateGate`、`gradeCard`、`partitionReview` 与 `recommendFreshness`（纯函数）分别是双门禁、质量分级、保鲜分区与基于热度的建议；工具与调度器组合它们。
 - **热度投影**：`projectInjectedHeat` + `HeatLedger` 把 `kb/injected` 事件的消费投影进 JSONL 账本；仅凭 session 日志即可重建。
@@ -125,11 +126,10 @@
 
 ## Known Limitations and Deferred Work
 
-- **无团队库检索**——`kb_search` 只覆盖个人库；引用池经 `kb_team_read` 与知识包注入可达，双库统一检索是 kb-search 升级路径。
 - **docs 对 agent 只读**——`docs/` Wiki 是给人读的材料；agent 侧写 docs 等 web 工作台。
 - **kb 从不 clone/fetch/push**——团队仓库的远端同步是团队自己的 git 工作流；kb 的提交停留在本地直到团队推送。
 - **热度按 workspace 记账**——`KbConfig.heatPath` 账本只记录本 workspace 的会话；团队库的跨 workspace 聚合是工作台工作。
-- **团队卡片无分布式锁**——同一卡片的并发状态迁移可能丢失更新；push 时的 git 冲突解决是边界（见 [git 策略 Note](../../../.agents/notes/implemented/feature/2026-08-19-dsh-kb-team-git-strategy.md)）。
+- **卡片写入无分布式锁**——内容编辑带乐观 mtime/size 冲突守卫（过期编辑大声失败），但状态迁移与并发的 agent 写入仍可能丢失更新；push 时的 git 冲突解决是边界（见 [git 策略 Note](../../../.agents/notes/implemented/feature/2026-08-19-dsh-kb-team-git-strategy.md)）。
 - **保鲜调度依赖 jobs 服务**——调度需要组合的 `ctx.jobs` 实现与控制器；没有时按需 `kb_freshness` 工具仍可用，且配置错误会 loud log。
 - **复盘调度依赖 jobs 服务**——`kb-recap` 任务与保鲜相同；没有时按需 `kb_recap` 工具仍可用，且配置错误会 loud log。
 - **复盘通知就是工具与任务输出**——盲点清单经 `kb_recap` 工具结果与定时任务缓冲输出到达模型；web 待办或 IM 通知渠道是 web 工作台里程碑的决策。
@@ -138,7 +138,7 @@
 - **向量/RAG 检索后置**——FTS5 + 结构化过滤是里程碑 6 契约；提供商槽位是 `KbService.search` 背后的 `CardIndex`-shaped 实现，降级契约是它的不变式，触发条件是团队卡 >500 或长文语义检索（设计 §4.4）。
 - **Web 工作台与 MCP 暴露在兄弟包中** —— 治理工作台（`@deepseek-ai/dsh-kb-web` + `@deepseek-ai/dsh-client-ui-kb-workbench`）与只读 MCP Server（`@deepseek-ai/dsh-kb-mcp-server`）组合 kb-core；两者均为可选，不在出厂 bundle 中。
 - **检索每次同步重新解析全库**——每次 `search` 都重读并重解析所有卡片文件；索引写入按 mtime/size 差异更新，但解析成本与库大小线性。
-- **原始笔记采集推迟**——`importDir` 只导入卡片形文件并计数跳过原始文件；笔记转卡片归复盘/蒸馏里程碑，`ctx.jobs` 调度等待真实连接器。
+- **原始笔记 wrap 成草稿卡并带推断字段**——`importDir` 把无 front matter 的 `*.md` 文件 wrap 成 `howto` 草稿（`title` 取首个标题或文件名，`核心结论` 取非标题正文，`适用条件` 取首个内容行，有效期 `now + cardTtlDays`）；front matter 损坏的文件与空笔记保持跳过，工作台编辑修正推断字段。经 `ctx.jobs` 的定时采集仍等待真实连接器。
 - **中文检索按字切分**——FTS 索引将中文按字拆开以支持子串查询，无需分词词典；排序与短语语义与分词检索不同，单字查询会命中所有含该字的卡片。
 - **文件写入非原子**——卡片写入与采集检查点均为直接写入；中途崩溃可能留下半截文件，store 会将其报告为解析失败。
 - **会话启动时同步读库注入**——`agent/session-start` emit 不 await 监听器且首个 prompt 组装紧随其后，选择逻辑使用 store 的同步路径；读取受库规模与包过滤约束。

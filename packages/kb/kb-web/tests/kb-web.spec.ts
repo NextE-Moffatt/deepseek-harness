@@ -61,6 +61,7 @@ interface KbMocks {
   archiveTeam: ReturnType<typeof vi.fn>
   reviveTeam: ReturnType<typeof vi.fn>
   reviewTeam: ReturnType<typeof vi.fn>
+  editCard: ReturnType<typeof vi.fn>
 }
 
 /** Build a stubbed kb service exposing the workbench's call surface. */
@@ -77,6 +78,13 @@ function kbLike(overrides: Partial<KbService> = {}): { kb: KbService; mocks: KbM
     reviewTeam: vi.fn(async (_root: string, _id: string, approved: boolean) => ({
       card: { id: CARD, 状态: approved ? 'ready' : 'pending' },
       changed: approved,
+    })),
+    editCard: vi.fn(async (_root: string, _id: string, patch: Record<string, unknown>) => ({
+      card: { id: CARD, ...patch },
+      library: 'personal',
+      tier: 'P2',
+      path: '/ws/kb/cards/P2/x.md',
+      fields: ['title'],
     })),
   }
   const kb = { config: { recapPath: 'kb/.kb-recap.jsonl' }, ...mocks, ...overrides } as unknown as KbService
@@ -284,5 +292,43 @@ describe('lifecycle actions', () => {
     expect(events).toHaveLength(1)
     expect(events[0]!.data).toEqual({ id: CARD, from: 'pending', to: 'ready' })
     expect(mocks.reviewTeam).toHaveBeenCalledTimes(2)
+  })
+})
+
+describe('edit', () => {
+  it('applies the patch, appends kb/edit with the changed fields, and returns the refreshed card', async () => {
+    const { ctx, session, mocks } = await harness()
+    const edited = { id: CARD, title: '新标题', 状态: 'draft', 有效期: '2099-01-01' }
+    mocks.editCard.mockResolvedValueOnce({
+      card: edited, library: 'personal', tier: 'P2', path: '/ws/kb/cards/P2/x.md', fields: ['title'],
+    })
+    mocks.personalCard.mockResolvedValueOnce({ card: edited as never, tier: 'P2', path: '/ws/kb/cards/P2/x.md', mtime: 2, size: 2 })
+    const view = await ctx.kbWorkbench.edit(session, CARD, { title: '新标题' })
+    expect(mocks.editCard).toHaveBeenCalledWith(expect.any(String), CARD, { title: '新标题' }, undefined)
+    expect(view).toMatchObject({ library: 'personal', tier: 'P2', mtime: 2, size: 2 })
+    expect(view.card.title).toBe('新标题')
+    const event = session.events.find(candidate => candidate.type === 'kb/edit')
+    expect(event?.data).toEqual({ id: CARD, library: 'personal', fields: ['title'] })
+  })
+
+  it('appends nothing for a no-op edit and passes the expected identity and approval through', async () => {
+    const { ctx, session, mocks } = await harness()
+    const edited = { id: CARD, title: '同标题', 状态: 'draft', 有效期: '2099-01-01' }
+    mocks.editCard.mockResolvedValueOnce({
+      card: edited, library: 'personal', tier: 'P2', path: '/ws/kb/cards/P2/x.md', fields: [],
+    })
+    mocks.personalCard.mockResolvedValueOnce({ card: edited as never, tier: 'P2', path: '/ws/kb/cards/P2/x.md', mtime: 1, size: 1 })
+    await ctx.kbWorkbench.edit(session, CARD, { title: '同标题' }, { expected: { mtime: 1, size: 1 }, approved: true })
+    expect(mocks.editCard).toHaveBeenCalledWith(
+      expect.any(String), CARD, { title: '同标题' }, { expected: { mtime: 1, size: 1 }, approved: true },
+    )
+    expect(session.events.some(event => event.type === 'kb/edit')).toBe(false)
+  })
+
+  it('surfaces a conflict without appending kb/edit', async () => {
+    const { ctx, session, mocks } = await harness()
+    mocks.editCard.mockRejectedValueOnce(new Error('卡片已被其他会话修改，请刷新后重试（x）'))
+    await expect(ctx.kbWorkbench.edit(session, CARD, { title: '新标题' })).rejects.toThrow(/已被其他会话修改/)
+    expect(session.events.some(event => event.type === 'kb/edit')).toBe(false)
   })
 })

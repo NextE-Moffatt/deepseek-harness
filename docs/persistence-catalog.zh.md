@@ -475,6 +475,23 @@ export type SessionEvent<T extends SessionEventType = SessionEventType> = {
 
 ### `kb/*`
 
+<a id="kbedit--log-only"></a>
+
+#### `kb/edit` — log-only
+
+```ts persistence-catalog
+/** A card's content was edited (the workbench or a future edit consumer):
+ * `fields` names the changed content fields; the card file at its path is
+ * the content source of truth, exactly like `kb/write`. */
+'kb/edit': {
+  id: CardId
+  library: CardLibrary
+  fields: string[]
+}
+```
+
+来源：[`packages/kb/kb-core/src/types.ts:188`](../packages/kb/kb-core/src/types.ts)
+
 <a id="kbinjected--log-only"></a>
 
 #### `kb/injected` — log-only
@@ -490,7 +507,7 @@ export type SessionEvent<T extends SessionEventType = SessionEventType> = {
 }
 ```
 
-来源：[`packages/kb/kb-core/src/types.ts:136`](../packages/kb/kb-core/src/types.ts)
+来源：[`packages/kb/kb-core/src/types.ts:199`](../packages/kb/kb-core/src/types.ts)
 
 <a id="kbpromote--log-only"></a>
 
@@ -502,7 +519,7 @@ export type SessionEvent<T extends SessionEventType = SessionEventType> = {
 'kb/promote': { id: CardId; from: CardStatus; to: CardStatus; evidence?: string }
 ```
 
-来源：[`packages/kb/kb-core/src/types.ts:153`](../packages/kb/kb-core/src/types.ts)
+来源：[`packages/kb/kb-core/src/types.ts:195`](../packages/kb/kb-core/src/types.ts)
 
 <a id="kbrecap--log-only"></a>
 
@@ -522,7 +539,7 @@ export type SessionEvent<T extends SessionEventType = SessionEventType> = {
 }
 ```
 
-来源：[`packages/kb/kb-core/src/types.ts:175`](../packages/kb/kb-core/src/types.ts)
+来源：[`packages/kb/kb-core/src/types.ts:217`](../packages/kb/kb-core/src/types.ts)
 
 <a id="kbteam-join--log-only"></a>
 
@@ -540,7 +557,7 @@ export type SessionEvent<T extends SessionEventType = SessionEventType> = {
 }
 ```
 
-来源：[`packages/kb/kb-core/src/types.ts:166`](../packages/kb/kb-core/src/types.ts)
+来源：[`packages/kb/kb-core/src/types.ts:208`](../packages/kb/kb-core/src/types.ts)
 
 <a id="kbwrite--log-only"></a>
 
@@ -559,7 +576,7 @@ export type SessionEvent<T extends SessionEventType = SessionEventType> = {
 }
 ```
 
-来源：[`packages/kb/kb-core/src/types.ts:122`](../packages/kb/kb-core/src/types.ts)
+来源：[`packages/kb/kb-core/src/types.ts:177`](../packages/kb/kb-core/src/types.ts)
 
 ### `llm/*`
 

@@ -2,7 +2,7 @@
 
 [English](README.md) | 中文
 
-Web 治理工作台主机侧：`ctx.kbWorkbench`，一个 Remote 服务，暴露某个工作区的合并待复核清单（保鲜 + 复盘盲点）、完整卡片读取、飞轮指标与生命周期动作（晋升 / 归档 / 复活 / 复核）。浏览器侧是 [`@deepseek-ai/dsh-client-ui-kb-workbench`](../../client/ui-kb-workbench/README.md)；[里程碑 5 Agent Note](../../../.agents/notes/implemented/feature/2026-08-19-dsh-kb-milestone-5-workbench-and-mcp.md) 拥有范围决策。
+Web 治理工作台主机侧：`ctx.kbWorkbench`，一个 Remote 服务，暴露某个工作区的合并待复核清单（保鲜 + 复盘盲点）、完整卡片读取、飞轮指标、生命周期动作（晋升 / 归档 / 复活 / 复核）与内容编辑动作（冲突守卫、团队门禁）。浏览器侧是 [`@deepseek-ai/dsh-client-ui-kb-workbench`](../../client/ui-kb-workbench/README.md)；[里程碑 5 Agent Note](../../../.agents/notes/implemented/feature/2026-08-19-dsh-kb-milestone-5-workbench-and-mcp.md) 拥有范围决策，[里程碑 7 Agent Note](../../../.agents/notes/implemented/feature/2026-08-19-dsh-kb-milestone-7-doc-import-and-workbench-edit.md) 取代其"不做卡片内容编辑"的选择。
 
 ## Service
 
@@ -11,7 +11,8 @@ Web 治理工作台主机侧：`ctx.kbWorkbench`，一个 Remote 服务，暴露
 | 方法 | 行为 |
 |---|---|
 | `overview(session, today?)` | 合并待复核视图：保鲜复核、未记录的复盘盲点（只检测不记录——检查点队列仍归工具与调度器）、热度账本，以及从同一批数据面投影的五个飞轮指标（注入次数、热度 Top 卡片、晋升总数、待复核、盲点）。 |
-| `card(session, id)` | 个人库与团队库中的一张完整卡片及派生质量等级。 |
+| `card(session, id)` | 个人库与团队库中的一张完整卡片、派生质量等级与文件身份（编辑守卫的预期值）。 |
+| `edit(session, id, patch, options?)` | 内容编辑：经 `KbService.editCard` 应用 patch（冲突守卫、团队门禁），有变更时追加 `kb/edit`。 |
 | `promote(session, id, target, evidence?)` | 晋升迁移（`pending` / `ready`，即 `kb_promote` 子集）+ `kb/promote` 事件。 |
 | `archive(session, id)` / `revive(session, id)` | 退役/复活边 + `kb/promote` 事件。 |
 | `review(session, id, approved)` | 第二门禁；与 `kb_review` 一样仅通过时追加 `kb/promote`。 |
@@ -29,7 +30,7 @@ Web 治理工作台主机侧：`ctx.kbWorkbench`，一个 Remote 服务，暴露
 
 ## Events
 
-工作台追加与工具相同的 `kb/promote` 事件（携带迁移载荷；被拒的复核不追加），因此人的动作是与工具调用一样可从日志重建的 session 事实。overview 只读既有投影（`kb.freshnessReview`、复盘检查点、热度账本，以及对工作区 session 日志上 `kb/promote` 事件的折叠）——不存在第二事件流。
+工作台追加与工具相同的 `kb/*` 事件（携带迁移载荷；被拒的复核不追加），因此人的动作是与工具调用一样可从日志重建的 session 事实。内容编辑在写入成功后追加 `kb/edit`（变更字段名列表；卡片文件仍是内容唯一事实源）。overview 只读既有投影（`kb.freshnessReview`、复盘检查点、热度账本，以及对工作区 session 日志上 `kb/promote` 事件的折叠）——不存在第二事件流。
 
 ## Model Experience
 
@@ -50,6 +51,7 @@ Web 治理工作台主机侧：`ctx.kbWorkbench`，一个 Remote 服务，暴露
 ## Known Limitations and Deferred Work
 
 - **可选组合** —— kb-core、kb-web 与工作台客户端插件通过部署自己的 `cordis.yml` 挂载（见 [kb-web overlay 示例](../../../examples/kb-web/cordis.yml)）；出厂 `dsh-web-app` bundle 不含 kb。
-- **无卡片内容编辑** —— 工作台动作集恰好是既有 seam 支持的生命周期迁移；改卡片内容仍是模型任务，走 `kb_write`（新草稿）+ 双门禁。
+- **团队编辑默认走审批门** —— `KbConfig.teamWriteApproval`（默认 true）下，`edit` Remote 拒绝未带 `options.approved` 的团队卡编辑；工作台的团队编辑确认就是这个审批信号，模型工具路径保留自己的 `tools/pre-execute` ask 门。
+- **编辑守卫是乐观的，不是锁** —— 过期编辑（详情读取后卡片的 mtime/size 已变化）带冲突信息大声失败；客户端刷新详情后人重试。
 - **工作台只列盲点不记录** —— 复盘检查点只通过 `kb_recap` 工具与定时任务推进，队列语义不变。
 - **IM 通知后置** —— 待复核清单就是人的渠道；IM 渠道带文档化触发条件（真实运维渠道需求）。

@@ -14,6 +14,7 @@ import { hasClass, installAssembledBootEnv, mountAssembledApp, REFRESHING_GOLDEN
 
 const OVERVIEW_EXPECTED = join(process.cwd(), 'apps/web/tests/snapshots/kb-workbench/overview.expected.txt')
 const DETAIL_EXPECTED = join(process.cwd(), 'apps/web/tests/snapshots/kb-workbench/detail.expected.txt')
+const EDITED_EXPECTED = join(process.cwd(), 'apps/web/tests/snapshots/kb-workbench/edited.expected.txt')
 
 installAssembledBootEnv()
 
@@ -105,5 +106,34 @@ describe('assembled kb workbench surface', () => {
       writeFileSync(DETAIL_EXPECTED, shape)
     }
     await expect(shape).toMatchFileSnapshot(DETAIL_EXPECTED)
+  })
+
+  it('edits a card field through the form and the refreshed detail carries the saved title', async () => {
+    await openWorkbenchSection()
+    // Open the draft card detail from the blind-spot consumed card.
+    const blindSpot = screen.getByText('Recap blind spots').closest('li')
+    const consumed = within(blindSpot!).getAllByText(/rule-20260818-001/)
+    fireEvent.click(consumed[consumed.length - 1]!)
+    await waitFor(() => {
+      expect(screen.getAllByText(/告警处置标准/).length).toBeGreaterThan(0)
+    }, { timeout: 10_000 })
+    // Enter the edit form, change the title and the condition, save.
+    fireEvent.click(screen.getByText('Edit'))
+    const title = await screen.findByLabelText('Title') as HTMLInputElement
+    fireEvent.change(title, { target: { value: '编辑后的告警处置标准' } })
+    const condition = screen.getByLabelText('When to use') as HTMLTextAreaElement
+    fireEvent.change(condition, { target: { value: '值班收到新告警' } })
+    fireEvent.click(screen.getByText('Save'))
+    // The form closes and the refreshed detail shows the saved fields.
+    await waitFor(() => {
+      expect(screen.getAllByText(/编辑后的告警处置标准/).length).toBeGreaterThan(0)
+    }, { timeout: 10_000 })
+    expect(screen.queryByText('Save')).toBeNull()
+    const shape = detailShape()
+    if (REFRESHING_GOLDEN) {
+      mkdirSync(dirname(EDITED_EXPECTED), { recursive: true })
+      writeFileSync(EDITED_EXPECTED, shape)
+    }
+    await expect(shape).toMatchFileSnapshot(EDITED_EXPECTED)
   })
 })

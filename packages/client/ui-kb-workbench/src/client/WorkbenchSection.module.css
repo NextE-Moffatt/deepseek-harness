@@ -200,3 +200,30 @@
 .action {
   font-size: 13px;
 }
+
+.editForm {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.editField {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 13px;
+}
+
+.editField > span {
+  opacity: 0.75;
+}
+
+.editInput {
+  font-size: 13px;
+  padding: 4px 6px;
+}
+
+.editHint {
+  font-size: 12px;
+  opacity: 0.55;
+}

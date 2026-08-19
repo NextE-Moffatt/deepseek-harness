@@ -15,8 +15,7 @@ import { afterEach, describe, expect, it } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
 import Loader from '@deepseek-ai/cordis-plugin-loader'
 import Include from '@deepseek-ai/cordis-plugin-include'
-import type { Session } from '@deepseek-ai/dsh-session'
-import SessionStore, { SessionId } from '@deepseek-ai/dsh-session'
+import SessionStore, { Session, SessionId } from '@deepseek-ai/dsh-session'
 import AgentRegistry from '@deepseek-ai/dsh-agent'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import ToolRuntime from '@deepseek-ai/dsh-tools'
@@ -195,6 +194,47 @@ describe('kb workbench through the Loader composition', () => {
 
     // The read-only overview never touched the recap checkpoint.
     await expect(readFile(join(workspace!, 'kb', '.kb-recap.jsonl'))).rejects.toMatchObject({ code: 'ENOENT' })
+  })
+
+  it('edits a personal card and a team card through the Remote, gating the team write and logging kb/edit', async () => {
+    const ctx = await boot()
+    const kb = ctx.get('kb') as KbService
+    const service = ctx.get('kbWorkbench') as KbWorkbenchService
+
+    // A real personal draft card.
+    await kb.writeCard(workspace!, {
+      tier: 'P2', id: 'rule-20260801-003' as CardId, type: 'rule', title: '可编辑规则',
+      适用条件: '任何会话', 核心结论: '结论', 应做: ['做'], 不应做: ['不做'],
+      来源: 'https://example.com/MR-3', 责任人: '本人', 有效期: '2099-01-01', 标签: ['kb'],
+    })
+    const workbench = ctx.sessions.create(SessionId('workbench-edit'), { meta: { cwd: workspace! } })
+
+    // The personal edit rewrites the file and logs kb/edit with the changed fields.
+    const edited = await service.edit(workbench, 'rule-20260801-003', { title: '新标题', 标签: ['kb', '编辑'] })
+    expect(edited).toMatchObject({ library: 'personal', tier: 'P2' })
+    expect(edited.card.title).toBe('新标题')
+    expect(await readFile(edited.path, 'utf8')).toContain('title: 新标题')
+    expect(workbench.events.find(event => event.type === 'kb/edit')?.data).toEqual({
+      id: 'rule-20260801-003', library: 'personal', fields: ['title', '标签'],
+    })
+
+    // The team edit is approval-gated under the default teamWriteApproval.
+    await kb.promoteToTeam(workspace!, 'rule-20260801-003' as CardId, ['评审'])
+    await expect(service.edit(workbench, 'rule-20260801-003', { title: '团队标题' }))
+      .rejects.toThrow(/需经审批/)
+    const teamEdited = await service.edit(workbench, 'rule-20260801-003', { title: '团队标题' }, { approved: true })
+    expect(teamEdited).toMatchObject({ library: 'team', tier: 'team' })
+    expect(teamEdited.card.title).toBe('团队标题')
+    expect(await readFile(teamEdited.path, 'utf8')).toContain('库: team')
+
+    // The log alone rebuilds the edit chain: two kb/edit events (one per library).
+    const edits = workbench.events.filter(event => event.type === 'kb/edit').map(event => event.data)
+    expect(edits).toEqual([
+      { id: 'rule-20260801-003', library: 'personal', fields: ['title', '标签'] },
+      { id: 'rule-20260801-003', library: 'team', fields: ['title'] },
+    ])
+    const replayed = Session.create(SessionId('replay'), workbench.events)
+    expect(replayed.events.filter(event => event.type === 'kb/edit').length).toBe(2)
   })
 
   it('refuses invalid config at load', async () => {

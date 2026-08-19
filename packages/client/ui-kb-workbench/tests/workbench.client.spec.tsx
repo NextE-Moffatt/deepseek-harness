@@ -70,6 +70,8 @@ function cardFixture(over: Partial<KbWorkbenchCard> = {}): KbWorkbenchCard {
     tier: 'P2',
     path: '/ws/a/kb/cards/P2/rule-20260818-001.md',
     grade: 'pending',
+    mtime: 100,
+    size: 200,
     card: {
       id: CARD, type: 'rule', title: '过期规则', 库: 'personal', 状态: 'draft',
       适用条件: '值班收到告警', 核心结论: '先确认影响面', 应做: ['确认影响面'], 不应做: ['直接重启'],
@@ -95,6 +97,7 @@ function injected(over: Partial<Injected> = {}): Injected {
     archive: vi.fn(async () => ({ ok: true as const, value: undefined })),
     revive: vi.fn(async () => ({ ok: true as const, value: undefined })),
     review: vi.fn(async () => ({ ok: true as const, value: undefined })),
+    edit: vi.fn(async () => ({ ok: true as const, value: cardFixture() })),
     ...over,
   }
 }
@@ -432,5 +435,137 @@ describe('workbench section', () => {
     const blindSpot = (await screen.findByText('复盘盲点')).closest('li')!
     expect(within(blindSpot).getByText('无引用盲点')).toBeDefined()
     expect(within(blindSpot).queryByRole('button')).toBeNull()
+  })
+})
+
+describe('card editing', () => {
+  it('opens the edit form from the detail and saves a changed title with the expected identity', async () => {
+    const face = injected()
+    renderSection(face)
+    await screen.findByText('已过期')
+    fireEvent.click(freshnessRowOf('已过期', '过期规则'))
+    fireEvent.click(await screen.findByText('编辑'))
+    // The form is seeded from the current card.
+    const title = screen.getByLabelText('标题') as HTMLInputElement
+    expect(title.value).toBe('过期规则')
+    fireEvent.change(screen.getByLabelText('标题'), { target: { value: '新标题' } })
+    fireEvent.click(screen.getByText('保存'))
+    await waitFor(() => {
+      expect(face.edit).toHaveBeenCalledWith(
+        SESSION, CARD,
+        expect.objectContaining({ title: '新标题' }),
+        { expected: { mtime: 100, size: 200 } },
+      )
+    })
+    // Success exits the form and refreshes the detail + overview.
+    await waitFor(() => { expect(face.overview).toHaveBeenCalledTimes(2) })
+    expect(screen.queryByText('保存')).toBeNull()
+  })
+
+  it('splits 应做 lines and 标签 separators into the patch lists', async () => {
+    const face = injected()
+    renderSection(face)
+    await screen.findByText('已过期')
+    fireEvent.click(freshnessRowOf('已过期', '过期规则'))
+    fireEvent.click(await screen.findByText('编辑'))
+    fireEvent.change(screen.getByLabelText(/^应做/), { target: { value: '动作一\n动作二' } })
+    fireEvent.change(screen.getByLabelText('标签'), { target: { value: '告警、值班' } })
+    fireEvent.change(screen.getByLabelText('类型'), { target: { value: 'howto' } })
+    fireEvent.click(screen.getByText('保存'))
+    await waitFor(() => {
+      expect(face.edit).toHaveBeenCalledWith(SESSION, CARD, expect.objectContaining({
+        type: 'howto',
+        应做: ['动作一', '动作二'],
+        标签: ['告警', '值班'],
+      }), expect.anything())
+    })
+  })
+
+  it('edits every remaining form field and submits the full patch', async () => {
+    const face = injected()
+    renderSection(face)
+    await screen.findByText('已过期')
+    fireEvent.click(freshnessRowOf('已过期', '过期规则'))
+    fireEvent.click(await screen.findByText('编辑'))
+    fireEvent.change(screen.getByLabelText('适用条件'), { target: { value: '新条件' } })
+    fireEvent.change(screen.getByLabelText('核心结论'), { target: { value: '新结论' } })
+    fireEvent.change(screen.getByLabelText(/^不应做/), { target: { value: '新反动作' } })
+    fireEvent.change(screen.getByLabelText('反例'), { target: { value: '新反例' } })
+    fireEvent.change(screen.getByLabelText('来源'), { target: { value: 'https://example.com/new' } })
+    fireEvent.change(screen.getByLabelText('责任人'), { target: { value: '李四' } })
+    fireEvent.change(screen.getByLabelText('有效期'), { target: { value: '2027-01-01' } })
+    fireEvent.click(screen.getByText('保存'))
+    await waitFor(() => {
+      expect(face.edit).toHaveBeenCalledWith(SESSION, CARD, expect.objectContaining({
+        适用条件: '新条件',
+        核心结论: '新结论',
+        不应做: ['新反动作'],
+        反例: '新反例',
+        来源: 'https://example.com/new',
+        责任人: '李四',
+        有效期: '2027-01-01',
+      }), expect.anything())
+    })
+  })
+
+  it('seeds the optional fields, including a cleared 来源', async () => {
+    const base = cardFixture()
+    const withoutSource = { ...base, card: { ...base.card } } as KbWorkbenchCard
+    delete (withoutSource.card as Partial<typeof base.card>).来源
+    const withCounter = { ...withoutSource, card: { ...withoutSource.card, 反例: '踩过一次坑' } }
+    const face = injected({ card: vi.fn(async () => ({ ok: true as const, value: withCounter })) })
+    renderSection(face)
+    await screen.findByText('已过期')
+    fireEvent.click(freshnessRowOf('已过期', '过期规则'))
+    fireEvent.click(await screen.findByText('编辑'))
+    const counterExample = screen.getByLabelText('反例') as HTMLTextAreaElement
+    expect(counterExample.value).toBe('踩过一次坑')
+    const source = screen.getByLabelText('来源') as HTMLInputElement
+    expect(source.value).toBe('')
+  })
+
+  it('requires the team confirmation and passes approved for a team card', async () => {
+    const face = injected({
+      card: vi.fn(async () => ({ ok: true as const, value: cardFixture({
+        library: 'team', tier: 'team',
+        card: { ...cardFixture().card, 库: 'team', 状态: 'ready' },
+      }) })),
+    })
+    renderSection(face)
+    await screen.findByText('已过期')
+    fireEvent.click(freshnessRowOf('已过期', '过期规则'))
+    fireEvent.click(await screen.findByText('编辑'))
+    const confirm = screen.getByLabelText('已确认将修改写入团队共享知识库') as HTMLInputElement
+    expect(confirm.checked).toBe(false)
+    fireEvent.click(confirm)
+    fireEvent.click(screen.getByText('保存'))
+    await waitFor(() => {
+      expect(face.edit).toHaveBeenCalledWith(SESSION, CARD, expect.anything(), expect.objectContaining({ approved: true }))
+    })
+  })
+
+  it('surfaces a conflict error and stays in the form', async () => {
+    const face = injected({
+      edit: vi.fn(async () => ({ ok: false as const, error: { code: 'conflict', message: '卡片已被其他会话修改，请刷新后重试（x）', details: {} } })),
+    })
+    renderSection(face)
+    await screen.findByText('已过期')
+    fireEvent.click(freshnessRowOf('已过期', '过期规则'))
+    fireEvent.click(await screen.findByText('编辑'))
+    fireEvent.click(screen.getByText('保存'))
+    expect(await screen.findByRole('alert')).toBeDefined()
+    expect(screen.getByText(/已被其他会话修改/)).toBeDefined()
+    expect(screen.getByText('保存')).toBeDefined()
+  })
+
+  it('cancels the form without calling edit', async () => {
+    const face = injected()
+    renderSection(face)
+    await screen.findByText('已过期')
+    fireEvent.click(freshnessRowOf('已过期', '过期规则'))
+    fireEvent.click(await screen.findByText('编辑'))
+    fireEvent.click(screen.getByText('取消'))
+    expect(screen.queryByText('保存')).toBeNull()
+    expect(face.edit).not.toHaveBeenCalled()
   })
 })

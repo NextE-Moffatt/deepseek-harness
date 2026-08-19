@@ -830,8 +830,14 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
         returns: 'the card in its new state plus the transition.',
       },
       {
+        signature: 'async editCard(root: string, id: CardId, patch: CardEditPatch, options?: EditCardOptions): Promise<CardEditResult>',
+        description: 'Edit one card\'s content across the personal and team libraries: validate the patch at the wire boundary, apply it preserving `id` / `库` / `状态`, guard against concurrent modification via the expected file identity, and rewrite in place. A team-card edit requires `options.approved` when `KbConfig.teamWriteApproval` is set. The caller (workbench) appends `kb/edit` when the result\'s `fields` are non-empty.',
+        parameters: [{ name: 'root', description: 'the session workspace root.' }, { name: 'id', description: 'the card id.' }, { name: 'patch', description: 'the content-field patch.' }, { name: 'options', description: 'the optimistic guard and the team approval signal.' }],
+        returns: 'the edited card with the changed field names.',
+      },
+      {
         signature: 'importDir(options: ImportOptions): Promise<IngestResult>',
-        description: 'Run the incremental ingest over a source directory into the library at `options.root` (see importDir).',
+        description: 'Run the incremental ingest over a source directory into the library at `options.root` (see importDir). A wrapped card\'s 有效期 defaults to `now + cardTtlDays` when the options omit it.',
         parameters: [{ name: 'options', description: 'import options.' }],
         returns: 'the import outcome.',
       },
@@ -941,8 +947,14 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
         signature: '@Remote(\'card\') async card(session: Session, id: string): Promise<KbWorkbenchCard>',
         description: 'Read one full card across the personal and team libraries.',
         parameters: [{ name: 'session', description: 'the workbench session (its cwd is the workspace root).' }, { name: 'id', description: 'the card id.' }],
-        returns: 'the card view with its library, tier, path, and derived grade.',
+        returns: 'the card view with its library, tier, path, derived grade, and file identity (the edit conflict guard\'s expected values).',
         throws: ['when no library holds the id.'],
+      },
+      {
+        signature: '@Remote(\'edit\') async edit(session: Session, id: string, patch: KbWorkbenchEditPatch, options?: KbWorkbenchEditOptions): Promise<KbWorkbenchCard>',
+        description: 'The content-edit action: apply the patch through `KbService.editCard` (conflict-guarded, team-gated) and append `kb/edit` to the workbench session\'s log when the edit changed anything. The card file stays the content source of truth, exactly like `kb_write`\'s `kb/write` event.',
+        parameters: [{ name: 'session', description: 'the workbench session (its cwd is the workspace root).' }, { name: 'id', description: 'the card id.' }, { name: 'patch', description: 'the content-field patch.' }, { name: 'options', description: 'the expected file identity and the team approval signal.' }],
+        returns: 'the refreshed card view.',
       },
       {
         signature: '@Remote(\'promote\') async promote(session: Session, id: string, target: CardStatus, evidence?: string): Promise<{ card: Card from: CardStatus to: CardStatus path: string evidence?: string }>',
@@ -2933,6 +2945,14 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export interface Card {\n    id: CardId;\n    type: CardType;\n    title: string;\n    库: CardLibrary;\n    状态: CardStatus;\n    适用条件: string;\n    核心结论: string;\n    应做: string[];\n    不应做: string[];\n    反例?: string;\n    来源?: string;\n    责任人: string;\n    有效期: string;\n    标签: string[];\n}',
   },
   {
+    name: 'CardEditPatch',
+    declaration: 'export interface CardEditPatch {\n    type?: CardType;\n    title?: string;\n    适用条件?: string;\n    核心结论?: string;\n    应做?: string[];\n    不应做?: string[];\n    反例?: string;\n    来源?: string;\n    责任人?: string;\n    有效期?: string;\n    标签?: string[];\n}',
+  },
+  {
+    name: 'CardEditResult',
+    declaration: 'export interface CardEditResult {\n    card: Card;\n    library: CardLibrary;\n    tier: CardTier | \'team\';\n    path: string;\n    fields: string[];\n}',
+  },
+  {
     name: 'CardFileInfo',
     declaration: 'export interface CardFileInfo {\n    card: Card;\n    tier: CardTier;\n    path: string;\n    mtime: number;\n    size: number;\n}',
   },
@@ -3249,6 +3269,10 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export interface DynamicCordisRunRequest {\n    requestId: ApprovalRequestId;\n    agentId: SessionId;\n    pluginId: CordisDynamicPluginId;\n    packageId: CordisDynamicPackageId;\n    mode: CordisDynamicRunMode;\n    name: string;\n    purpose: string;\n    requiresApproval: boolean;\n}',
   },
   {
+    name: 'EditCardOptions',
+    declaration: 'export interface EditCardOptions {\n    expected?: {\n        mtime: number;\n        size: number;\n    };\n    approved?: boolean;\n}',
+  },
+  {
     name: 'EditGoalRequest',
     declaration: 'export interface EditGoalRequest {\n    readonly objective?: string;\n    readonly maxGoalRounds?: number;\n}',
   },
@@ -3386,7 +3410,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'ImportOptions',
-    declaration: 'export interface ImportOptions {\n    root: string;\n    sourceDir: string;\n    tier: CardTier;\n}',
+    declaration: 'export interface ImportOptions {\n    root: string;\n    sourceDir: string;\n    tier: CardTier;\n    cardTtlDays?: number;\n}',
   },
   {
     name: 'Inbox',
@@ -3502,7 +3526,15 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'KbWorkbenchCard',
-    declaration: 'export interface KbWorkbenchCard {\n    readonly library: CardLibrary;\n    readonly card: Card;\n    readonly tier: string;\n    readonly path: string;\n    readonly grade: CardGrade;\n}',
+    declaration: 'export interface KbWorkbenchCard {\n    readonly library: CardLibrary;\n    readonly card: Card;\n    readonly tier: string;\n    readonly path: string;\n    readonly grade: CardGrade;\n    readonly mtime: number;\n    readonly size: number;\n}',
+  },
+  {
+    name: 'KbWorkbenchEditOptions',
+    declaration: 'export interface KbWorkbenchEditOptions {\n    readonly expected?: {\n        mtime: number;\n        size: number;\n    };\n    readonly approved?: boolean;\n}',
+  },
+  {
+    name: 'KbWorkbenchEditPatch',
+    declaration: 'export type KbWorkbenchEditPatch = CardEditPatch;',
   },
   {
     name: 'KbWorkbenchOverview',

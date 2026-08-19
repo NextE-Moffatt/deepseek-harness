@@ -2,7 +2,7 @@
 
 [English](kb.md) | 中文
 
-个人 + 团队知识库：`ctx.kb` 持有卡片读写、晋升状态机、带扫描降级契约的 FTS5 检索、增量采集、会话启动时的知识包注入、团队 git 库（cards/ + docs/）、双门禁治理与保鲜、热度遥测投影、复盘盲点扫描与其可选调度器、方法论技能，并注册 `kb_write` / `kb_read` / `kb_search` / `kb_promote` / `kb_gate_check` / `kb_team_promote` / `kb_team_read` / `kb_review` / `kb_archive` / `kb_revive` / `kb_team_status` / `kb_team_commit` / `kb_freshness` / `kb_recap` 工具。[里程碑 1 Agent Note](../../.agents/notes/implemented/feature/2026-08-18-dsh-kb-package-group-milestone-1.md) 持有包组决策，[注入 Agent Note](../../.agents/notes/implemented/feature/2026-08-18-dsh-kb-inject.md) 持有知识包决策，[里程碑 3 Agent Note](../../.agents/notes/implemented/feature/2026-08-19-dsh-kb-milestone-3.md) 持有团队库、治理与遥测决策，[里程碑 4 Agent Note](../../.agents/notes/implemented/feature/2026-08-19-dsh-kb-milestone-4-recap-and-skills.md) 持有复盘与技能决策，[里程碑 5 Agent Note](../../.agents/notes/implemented/feature/2026-08-19-dsh-kb-milestone-5-workbench-and-mcp.md) 持有 web 工作台与 MCP 暴露决策；本页记录 [`packages/kb/kb-core/src/types.ts`](../../packages/kb/kb-core/src/types.ts) 的确切类型。
+个人 + 团队知识库：`ctx.kb` 持有卡片读写编辑、晋升状态机、带扫描降级契约的 FTS5 检索、增量采集（含 raw-note wrap）、会话启动时的知识包注入、团队 git 库（cards/ + docs/）、双门禁治理与保鲜、热度遥测投影、复盘盲点扫描与其可选调度器、方法论技能，并注册 `kb_write` / `kb_read` / `kb_search` / `kb_promote` / `kb_gate_check` / `kb_team_promote` / `kb_team_read` / `kb_review` / `kb_archive` / `kb_revive` / `kb_team_status` / `kb_team_commit` / `kb_freshness` / `kb_recap` 工具。[里程碑 1 Agent Note](../../.agents/notes/implemented/feature/2026-08-18-dsh-kb-package-group-milestone-1.md) 持有包组决策，[注入 Agent Note](../../.agents/notes/implemented/feature/2026-08-18-dsh-kb-inject.md) 持有知识包决策，[里程碑 3 Agent Note](../../.agents/notes/implemented/feature/2026-08-19-dsh-kb-milestone-3.md) 持有团队库、治理与遥测决策，[里程碑 4 Agent Note](../../.agents/notes/implemented/feature/2026-08-19-dsh-kb-milestone-4-recap-and-skills.md) 持有复盘与技能决策，[里程碑 5 Agent Note](../../.agents/notes/implemented/feature/2026-08-19-dsh-kb-milestone-5-workbench-and-mcp.md) 持有 web 工作台与 MCP 暴露决策，[里程碑 7 Agent Note](../../.agents/notes/implemented/feature/2026-08-19-dsh-kb-milestone-7-doc-import-and-workbench-edit.md) 持有 raw-note 导入与卡片编辑决策；本页记录 [`packages/kb/kb-core/src/types.ts`](../../packages/kb/kb-core/src/types.ts) 的确切类型。
 
 ## Card model
 
@@ -65,7 +65,7 @@ type CardGrade = 'verified' | 'pending' | 'verify'
 
 ## Session events
 
-状态变更必须入日志：`kb/write` 记录工具执行的卡片写入，`kb/promote` 记录状态流转，`kb/team-join` 记录个人卡片经第一道门进入团队库，`kb/injected` 记录一次会话启动时的知识包注入，`kb/recap` 记录一次复盘扫描的检查点推进（记录的位置与列出的盲点）。全部都在底层操作成功后追加，模型可见面可从 session 日志回放；`kb/injected` 携带完整渲染后的卡片节，`kb:pack` prompt section 仅凭日志即可重建。完整载荷声明见 [persistence catalog](../persistence-catalog.md#kbpromote--log-only)。
+状态变更必须入日志：`kb/write` 记录工具执行的卡片写入，`kb/edit` 记录一次内容编辑（变更字段名列表；卡片文件仍是内容唯一事实源），`kb/promote` 记录状态流转，`kb/team-join` 记录个人卡片经第一道门进入团队库，`kb/injected` 记录一次会话启动时的知识包注入，`kb/recap` 记录一次复盘扫描的检查点推进（记录的位置与列出的盲点）。全部都在底层操作成功后追加，模型可见面可从 session 日志回放；`kb/injected` 携带完整渲染后的卡片节，`kb:pack` prompt section 仅凭日志即可重建。完整载荷声明见 [persistence catalog](../persistence-catalog.md#kbpromote--log-only)。
 
 ## Knowledge packs
 
@@ -123,7 +123,7 @@ interface PackSection {
 
 ## Web 工作台
 
-人的界面是 web 设置页的一个 section（`kb-workbench`），由 `@deepseek-ai/dsh-kb-web`（主机 Remote 服务 `ctx.kbWorkbench`，namespace `kbWorkbench`）、`@deepseek-ai/dsh-client-ui-kb-workbench`（浏览器侧）与 kb-core 组合而成——见 [kb-web overlay 示例](../../examples/kb-web/cordis.yml)。工作台渲染合并待复核清单（保鲜 + 未记录复盘盲点，只检测不记录，检查点队列仍归工具与调度器）、完整卡片读取、由 `kb/*` 事件及其持久化文件投影的五个飞轮指标，以及生命周期动作（晋升 / 归档 / 复活 / 复核）——它们是对既有 `ctx.kb` 方法的薄事件追加包装，向工作台所在 session 自己的日志追加与工具相同的 `kb/promote` 事件。不存在第二状态机或事件流。
+人的界面是 web 设置页的一个 section（`kb-workbench`），由 `@deepseek-ai/dsh-kb-web`（主机 Remote 服务 `ctx.kbWorkbench`，namespace `kbWorkbench`）、`@deepseek-ai/dsh-client-ui-kb-workbench`（浏览器侧）与 kb-core 组合而成——见 [kb-web overlay 示例](../../examples/kb-web/cordis.yml)。工作台渲染合并待复核清单（保鲜 + 未记录复盘盲点，只检测不记录，检查点队列仍归工具与调度器）、完整卡片读取、由 `kb/*` 事件及其持久化文件投影的五个飞轮指标，以及生命周期动作（晋升 / 归档 / 复活 / 复核）——它们是对既有 `ctx.kb` 方法的薄事件追加包装，向工作台所在 session 自己的日志追加与工具相同的 `kb/promote` 事件。内容编辑动作（`edit`）经 `KbService.editCard` 应用卡片内容 patch——乐观 mtime/size 冲突守卫与团队编辑审批门（`teamWriteApproval` 下）都在该方法内强制——有变更时追加 `kb/edit`；两库都原位编辑。不存在第二状态机或事件流。
 
 ## MCP 暴露
 
@@ -190,8 +190,24 @@ async search(root: string, request: SearchRequest): Promise<SearchOutcome>
 async promote(root: string, id: CardId, target: CardStatus, evidence?: string): Promise<PromoteResult>
 
 /**
+ * Edit one card's content across the personal and team libraries: validate
+ * the patch at the wire boundary, apply it preserving `id` / `库` / `状态`,
+ * guard against concurrent modification via the expected file identity, and
+ * rewrite in place. A team-card edit requires `options.approved` when
+ * `KbConfig.teamWriteApproval` is set. The caller (workbench) appends
+ * `kb/edit` when the result's `fields` are non-empty.
+ * @param root - the session workspace root.
+ * @param id - the card id.
+ * @param patch - the content-field patch.
+ * @param options - the optimistic guard and the team approval signal.
+ * @returns the edited card with the changed field names.
+ */
+async editCard(root: string, id: CardId, patch: CardEditPatch, options?: EditCardOptions): Promise<CardEditResult>
+
+/**
  * Run the incremental ingest over a source directory into the library at
- * `options.root` (see {@link importDir}).
+ * `options.root` (see {@link importDir}). A wrapped card's 有效期 defaults
+ * to `now + cardTtlDays` when the options omit it.
  * @param options - import options.
  * @returns the import outcome.
  */
@@ -325,7 +341,7 @@ freshnessReview(root: string, today?: string): Promise<FreshnessReview>
 async recap(root: string, limit: number): Promise<RecapScanResult>
 ```
 
-Source: [`packages/kb/kb-core/src/index.ts:301`](../../packages/kb/kb-core/src/index.ts)
+Source: [`packages/kb/kb-core/src/index.ts:318`](../../packages/kb/kb-core/src/index.ts)
 
 <a id="ctxkbworkbench--kbworkbenchservice"></a>
 
@@ -348,10 +364,24 @@ Source: [`packages/kb/kb-core/src/index.ts:301`](../../packages/kb/kb-core/src/i
  * Read one full card across the personal and team libraries.
  * @param session - the workbench session (its cwd is the workspace root).
  * @param id - the card id.
- * @returns the card view with its library, tier, path, and derived grade.
+ * @returns the card view with its library, tier, path, derived grade, and
+ * file identity (the edit conflict guard's expected values).
  * @throws when no library holds the id.
  */
 @Remote('card') async card(session: Session, id: string): Promise<KbWorkbenchCard>
+
+/**
+ * The content-edit action: apply the patch through `KbService.editCard`
+ * (conflict-guarded, team-gated) and append `kb/edit` to the workbench
+ * session's log when the edit changed anything. The card file stays the
+ * content source of truth, exactly like `kb_write`'s `kb/write` event.
+ * @param session - the workbench session (its cwd is the workspace root).
+ * @param id - the card id.
+ * @param patch - the content-field patch.
+ * @param options - the expected file identity and the team approval signal.
+ * @returns the refreshed card view.
+ */
+@Remote('edit') async edit(session: Session, id: string, patch: KbWorkbenchEditPatch, options?: KbWorkbenchEditOptions): Promise<KbWorkbenchCard>
 
 /**
  * The promotion action: apply the transition and append `kb/promote` to the

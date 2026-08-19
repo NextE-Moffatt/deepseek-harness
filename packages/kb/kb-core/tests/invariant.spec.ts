@@ -18,7 +18,7 @@ function event(type: SessionEvent['type'], data: unknown): SessionEvent {
 }
 
 describe('kb event invariants', () => {
-  it('accepts a coherent kb/write, kb/promote, and kb/injected on live appends', async () => {
+  it('accepts a coherent kb/write, kb/promote, kb/edit, and kb/injected on live appends', async () => {
     const ctx = new Context()
     await ctx.plugin(SessionStore)
     await ctx.plugin(InvariantRegistry, { enabled: true })
@@ -32,6 +32,7 @@ describe('kb event invariants', () => {
     })
     const session = ctx.sessions.list()[0]!
     session.append('kb/promote', { id: 'rule-20250818-001' as CardId, from: 'draft', to: 'pending', evidence: 'MR#1' })
+    session.append('kb/edit', { id: 'rule-20250818-001' as CardId, library: 'personal', fields: ['title', '标签'] })
     session.append('kb/injected', {
       pack: '告警处置',
       cardIds: ['rule-20250818-001' as CardId],
@@ -61,6 +62,10 @@ describe('kb event invariants', () => {
     ['kb/promote no change', 'kb/promote', { id: 'a-1', from: 'draft', to: 'draft' }, /must change the card state/],
     ['kb/promote illegal transition', 'kb/promote', { id: 'a-1', from: 'draft', to: 'ready' }, /not in the state machine/],
     ['kb/promote blank evidence', 'kb/promote', { id: 'a-1', from: 'draft', to: 'pending', evidence: '' }, /evidence must be a non-empty string/],
+    ['kb/edit blank id', 'kb/edit', { id: '', library: 'personal', fields: ['title'] }, /id must be a non-empty string/],
+    ['kb/edit bad library', 'kb/edit', { id: 'a-1', library: 'work', fields: ['title'] }, /library must be one of/],
+    ['kb/edit empty fields', 'kb/edit', { id: 'a-1', library: 'personal', fields: [] }, /fields must be a non-empty array/],
+    ['kb/edit blank field item', 'kb/edit', { id: 'a-1', library: 'personal', fields: [''] }, /fields must contain only non-empty strings/],
     ['kb/injected blank pack', 'kb/injected', { pack: '', cardIds: ['a'], sections: [{ name: 'a', text: 't' }] }, /pack must be a non-empty string/],
     ['kb/injected empty cardIds', 'kb/injected', { pack: 'p', cardIds: [], sections: [] }, /cardIds must be a non-empty array/],
     ['kb/injected empty sections', 'kb/injected', { pack: 'p', cardIds: ['a'], sections: [] }, /sections must be a non-empty array/],

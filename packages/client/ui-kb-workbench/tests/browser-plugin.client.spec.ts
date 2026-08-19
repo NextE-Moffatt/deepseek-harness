@@ -78,6 +78,7 @@ describe('ui-kb-workbench browser half', () => {
       archive: vi.fn(async () => ({ ok: true as const, value: {} })),
       revive: vi.fn(async () => ({ ok: true as const, value: {} })),
       review: vi.fn(async () => ({ ok: true as const, value: {} })),
+      edit: vi.fn(async () => ({ ok: true as const, value: {} })),
     }
     const { ctx } = await bench(kbWorkbench)
     const entry = ctx.slots.entries('settings.section').find(candidate => candidate.options.id === 'kb-workbench')
@@ -93,6 +94,7 @@ describe('ui-kb-workbench browser half', () => {
       archive: (s: string, id: string) => Promise<unknown>
       revive: (s: string, id: string) => Promise<unknown>
       review: (s: string, id: string, approved: boolean) => Promise<unknown>
+      edit: (s: string, id: string, patch: unknown, options?: unknown) => Promise<unknown>
     }
     await face.overview('s1', '2026-08-19')
     expect(kbWorkbench.overview).toHaveBeenCalledWith('s1', '2026-08-19')
@@ -106,6 +108,8 @@ describe('ui-kb-workbench browser half', () => {
     expect(kbWorkbench.revive).toHaveBeenCalledWith('s1', 'rule-1')
     await face.review('s1', 'rule-1', true)
     expect(kbWorkbench.review).toHaveBeenCalledWith('s1', 'rule-1', true)
+    await face.edit('s1', 'rule-1', { title: '新标题' }, { approved: true })
+    expect(kbWorkbench.edit).toHaveBeenCalledWith('s1', 'rule-1', { title: '新标题' }, { approved: true })
   })
 
   it('node half is inert', () => {

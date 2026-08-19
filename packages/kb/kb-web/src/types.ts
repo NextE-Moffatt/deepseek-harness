@@ -8,7 +8,7 @@
  * @module @deepseek-ai/dsh-kb-web/types
  */
 
-import type { Card, CardId, CardGrade, CardLibrary, FreshnessReview, HeatRow } from '@deepseek-ai/dsh-kb-core/types'
+import type { Card, CardEditPatch, CardId, CardGrade, CardLibrary, FreshnessReview, HeatRow } from '@deepseek-ai/dsh-kb-core/types'
 
 /** One top-heat card entry with its resolved title. */
 export interface KbTopHeatEntry {
@@ -77,4 +77,19 @@ export interface KbWorkbenchCard {
   readonly path: string
   /** The derived quality grade. */
   readonly grade: CardGrade
+  /** File mtime in epoch milliseconds, the edit conflict guard's expected identity. */
+  readonly mtime: number
+  /** File size in bytes, the edit conflict guard's expected identity. */
+  readonly size: number
+}
+
+/** The content-field patch the workbench edit sends (see `CardEditPatch`). */
+export type KbWorkbenchEditPatch = CardEditPatch
+
+/** The edit request options: the optimistic identity and the team approval signal. */
+export interface KbWorkbenchEditOptions {
+  /** Expected on-disk identity observed at detail load; a mismatch fails the edit. */
+  readonly expected?: { mtime: number; size: number }
+  /** Explicit approval for a team-card edit under `KbConfig.teamWriteApproval`. */
+  readonly approved?: boolean
 }

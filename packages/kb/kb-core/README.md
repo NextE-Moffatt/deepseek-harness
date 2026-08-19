@@ -14,6 +14,7 @@ The personal + team knowledge base: Markdown + YAML knowledge cards in the sessi
 | `readCard(root, id)` | Read one card across all tiers; throws when no tier holds the id. |
 | `search(root, request)` | FTS5 BM25 retrieval over the personal and team libraries together (one index per workspace root, `(library, id)` keyed), with structured filters, or an explicit `mode: 'scan'` degradation across both libraries when the index cannot open. |
 | `promote(root, id, target, evidence?)` | Assert the state machine, rewrite the card file, and return the new state. |
+| `editCard(root, id, patch, options?)` | Edit one card's content across both libraries: validate the patch at the wire boundary, apply it preserving `id` / `库` / `状态`, guard against concurrent modification via the expected file identity, and rewrite in place; a team edit requires `options.approved` under `teamWriteApproval`. |
 | `promoteToTeam(root, id, evidence)` | The first gate's admission: enforce the gate rule, move the personal draft into the team library as `pending`, and remove the personal file. |
 | `reviewTeam(root, id, approved)` | The second gate: an approved review transitions team `pending` → `ready`; a rejected review changes nothing. |
 | `archiveTeam(root, id)` / `reviveTeam(root, id)` | The retire/restore edges: `ready|revived → archived` and `archived → revived`. |
@@ -23,7 +24,7 @@ The personal + team knowledge base: Markdown + YAML knowledge cards in the sessi
 | `heat(root)` | The aggregated heat ledger: which cards were consumed by which sessions. |
 | `freshnessReview(root, today?)` | The pending-review list: overdue and expiring-soon cards with heat and recommendations. |
 | `recap(root, limit)` | Run one recap scan: detect the unrecorded blind spots, list up to `limit`, and record the listed positions into the checkpoint. |
-| `importDir(options)` | Incremental ingest: import card-shaped `*.md` files from a source directory with a checkpoint and dedup. |
+| `importDir(options)` | Incremental ingest: import card-shaped `*.md` files from a source directory, wrap raw markdown notes into draft cards with deterministic field inference, skip unwrappable files, and dedupe via a checkpoint; non-markdown files are skipped and counted. |
 
 The service methods stay session-free; the tools append the `kb/*` session events. Future modules (the web workbench) drive the same seam.
 
@@ -55,7 +56,7 @@ The promotion state machine is `draft → pending → ready → archived → rev
 
 ## Events
 
-`kb/write` (a card file written by a tool), `kb/promote` (a lifecycle transition), `kb/team-join` (a personal card entered the team library through the first gate), `kb/injected` (one knowledge-pack injection), and `kb/recap` (one recap scan's checkpoint advancement) extend `SessionEventMap`; all are appended after the underlying operation succeeds, so the model-visible surface is replayable from the session log.
+`kb/write` (a card file written by a tool), `kb/edit` (a card's content fields changed by the workbench or a future edit consumer), `kb/promote` (a lifecycle transition), `kb/team-join` (a personal card entered the team library through the first gate), `kb/injected` (one knowledge-pack injection), and `kb/recap` (one recap scan's checkpoint advancement) extend `SessionEventMap`; all are appended after the underlying operation succeeds, so the model-visible surface is replayable from the session log.
 
 ## Knowledge packs
 
@@ -64,7 +65,7 @@ A knowledge pack is a subscribed card collection injected into every agent sessi
 ## Extension points
 
 - **Search backend**: `CardIndex` (FTS5 `unicode61`, BM25, per-root database) is swappable; the degradation contract (`mode: 'scan'` with a note, never fabricated results) is part of the interface. CJK runs are char-split so substring queries match without a segmentation dictionary.
-- **Ingest seam**: `importDir` is the production-mode-E minimal implementation; `ctx.jobs` scheduling and raw-note wrapping arrive with a real connector.
+- **Ingest seam**: `importDir` is the production-mode-E minimal implementation: it imports card-shaped files, wraps raw markdown notes into draft cards, and skips unwrappable files; `ctx.jobs` scheduling awaits a real connector.
 - **Pack selection**: `selectPackCards` (pure) is the subscription filter over both libraries; a future `kb_pack` tool or the web workbench can wrap it when a real consumer exists.
 - **Governance logic**: `evaluateGate`, `gradeCard`, `partitionReview`, and `recommendFreshness` (pure) are the dual gate, quality grade, freshness partition, and heat-based recommendations; the tools and the scheduler compose them.
 - **Heat projection**: `projectInjectedHeat` + `HeatLedger` project consumption from `kb/injected` events into the JSONL ledger; rebuildable from session logs alone.
@@ -125,11 +126,10 @@ Prefix-stable while the injected packs are unchanged; the section follows the re
 
 ## Known Limitations and Deferred Work
 
-- **No team-library search** — `kb_search` covers the personal library; the reference pool is reachable through `kb_team_read` and pack injection, and a unified search over both libraries is the kb-search upgrade path.
 - **Docs are read-only for agents** — the `docs/` wiki is human reading material; agent-side doc writing awaits the web workbench.
 - **kb never clones, fetches, or pushes** — the team repository's remote sync is the team's own git workflow; kb commits stay local until the team pushes.
 - **Heat is per workspace** — the ledger at `KbConfig.heatPath` records this workspace's sessions; cross-workspace aggregation for the team library is workbench work.
-- **No distributed lock on team cards** — concurrent transitions of one card can lose an update; git conflict resolution at push time is the boundary (see the [git strategy note](../../../.agents/notes/implemented/feature/2026-08-19-dsh-kb-team-git-strategy.md)).
+- **No distributed lock on card writes** — content edits carry the optimistic mtime/size conflict guard (a stale edit fails loud), but lifecycle transitions and concurrent agent writes can still lose an update; git conflict resolution at push time is the boundary (see the [git strategy note](../../../.agents/notes/implemented/feature/2026-08-19-dsh-kb-team-git-strategy.md)).
 - **Freshness scheduler needs the jobs service** — scheduling requires a composed `ctx.jobs` implementation and controller; without one the on-demand `kb_freshness` tool still works and the misconfiguration logs loudly.
 - **Recap scheduler needs the jobs service** — the `kb-recap` job has the same requirement as freshness; without one the on-demand `kb_recap` tool still works and the misconfiguration logs loudly.
 - **Recap notifications are the tool and job outputs** — the blind-spot list reaches the model through the `kb_recap` tool result and the scheduled job's buffered output; web-todo or IM notification channels are the web-workbench milestone's decision.
@@ -138,7 +138,7 @@ Prefix-stable while the injected packs are unchanged; the section follows the re
 - **Vector/RAG retrieval is deferred** — FTS5 + structured filters are the milestone-6 contract; the provider slot is a `CardIndex`-shaped implementation behind `KbService.search` with the degradation contract as its invariant, triggered past ~500 team cards or long-form semantic retrieval (design §4.4).
 - **Web workbench and MCP exposure live in sibling packages** — the governance workbench (`@deepseek-ai/dsh-kb-web` + `@deepseek-ai/dsh-client-ui-kb-workbench`) and the read-only MCP server (`@deepseek-ai/dsh-kb-mcp-server`) compose kb-core; both are opt-in, outside the shipped bundles.
 - **Search reparses the library per sync** — each `search` re-reads and re-parses every card file; the index write is diffed by mtime/size, but parse cost is linear in library size.
-- **Raw-note ingestion is deferred** — `importDir` imports card-shaped files and counts raw files as skipped; wrapping notes into cards is the recap/distill milestone's job, and scheduling through `ctx.jobs` awaits a real connector.
+- **Raw notes wrap into draft cards with inferred fields** — `importDir` wraps front-matter-free `*.md` files as `howto` drafts (`title` from the first heading or the basename, `核心结论` from the non-heading body, `适用条件` from the first content line, 有效期 `now + cardTtlDays`); malformed front-matter files and empty notes stay skipped, and the workbench edit corrects the inferred fields. Scheduled ingest through `ctx.jobs` still awaits a real connector.
 - **Chinese search is character-based** — CJK runs are char-split in the FTS index so substring queries match without a segmentation dictionary; ranking and phrase semantics differ from word-segmented search, and a one-character query matches any card containing that character.
 - **No atomic file writes** — card writes and the ingest checkpoint use direct writes; a crash mid-write can leave a partial file that the store reports as a parse failure.
 - **Injection reads the library synchronously at session start** — the `agent/session-start` emit does not await listeners and the first prompt assembly follows immediately, so the selection uses the store's sync path; the read is bounded by library size and pack filters.

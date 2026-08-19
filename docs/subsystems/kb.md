@@ -2,7 +2,7 @@
 
 English | [中文](kb.zh.md)
 
-The personal + team knowledge library: `ctx.kb` owns card write/read, the promotion state machine, FTS5 search with the scan degradation contract, incremental ingest, knowledge-pack injection at session start, the team git library (cards/ + docs/), the dual-gate governance with freshness, the heat telemetry projection, the recap blind-spot scan with its optional scheduler, and the methodology skills, and registers the `kb_write` / `kb_read` / `kb_search` / `kb_promote` / `kb_gate_check` / `kb_team_promote` / `kb_team_read` / `kb_review` / `kb_archive` / `kb_revive` / `kb_team_status` / `kb_team_commit` / `kb_freshness` / `kb_recap` tools. The [milestone-1 Agent Note](../../.agents/notes/implemented/feature/2026-08-18-dsh-kb-package-group-milestone-1.md) owns the package-group decision, the [injection Agent Note](../../.agents/notes/implemented/feature/2026-08-18-dsh-kb-inject.md) owns the knowledge-pack decision, the [milestone-3 Agent Note](../../.agents/notes/implemented/feature/2026-08-19-dsh-kb-milestone-3.md) owns the team-library, governance, and telemetry decisions, the [milestone-4 Agent Note](../../.agents/notes/implemented/feature/2026-08-19-dsh-kb-milestone-4-recap-and-skills.md) owns the recap and skills decisions, and the [milestone-5 Agent Note](../../.agents/notes/implemented/feature/2026-08-19-dsh-kb-milestone-5-workbench-and-mcp.md) owns the web workbench and MCP exposure decisions; this page records the exact types from [`packages/kb/kb-core/src/types.ts`](../../packages/kb/kb-core/src/types.ts).
+The personal + team knowledge library: `ctx.kb` owns card write/read/edit, the promotion state machine, FTS5 search with the scan degradation contract, incremental ingest with raw-note wrapping, knowledge-pack injection at session start, the team git library (cards/ + docs/), the dual-gate governance with freshness, the heat telemetry projection, the recap blind-spot scan with its optional scheduler, and the methodology skills, and registers the `kb_write` / `kb_read` / `kb_search` / `kb_promote` / `kb_gate_check` / `kb_team_promote` / `kb_team_read` / `kb_review` / `kb_archive` / `kb_revive` / `kb_team_status` / `kb_team_commit` / `kb_freshness` / `kb_recap` tools. The [milestone-1 Agent Note](../../.agents/notes/implemented/feature/2026-08-18-dsh-kb-package-group-milestone-1.md) owns the package-group decision, the [injection Agent Note](../../.agents/notes/implemented/feature/2026-08-18-dsh-kb-inject.md) owns the knowledge-pack decision, the [milestone-3 Agent Note](../../.agents/notes/implemented/feature/2026-08-19-dsh-kb-milestone-3.md) owns the team-library, governance, and telemetry decisions, the [milestone-4 Agent Note](../../.agents/notes/implemented/feature/2026-08-19-dsh-kb-milestone-4-recap-and-skills.md) owns the recap and skills decisions, the [milestone-5 Agent Note](../../.agents/notes/implemented/feature/2026-08-19-dsh-kb-milestone-5-workbench-and-mcp.md) owns the web workbench and MCP exposure decisions, and the [milestone-7 Agent Note](../../.agents/notes/implemented/feature/2026-08-19-dsh-kb-milestone-7-doc-import-and-workbench-edit.md) owns the raw-note import and card-edit decisions; this page records the exact types from [`packages/kb/kb-core/src/types.ts`](../../packages/kb/kb-core/src/types.ts).
 
 ## Card model
 
@@ -65,7 +65,7 @@ The team library is a git work tree at `KbConfig.teamRepoPath` (absolute, or rel
 
 ## Session events
 
-State changes are logged: `kb/write` records a tool-performed card write, `kb/promote` records a lifecycle transition, `kb/team-join` records a personal card entering the team library through the first gate, `kb/injected` records one knowledge-pack injection at session start, and `kb/recap` records one recap scan's checkpoint advancement (the recorded positions and the listed blind spots). All are appended after the underlying operation succeeds, so the model-visible surface replays from the session log; `kb/injected` carries the full rendered card sections, so the `kb:pack` prompt section reconstructs from the log alone. The full payload declarations live in the [persistence catalog](../persistence-catalog.md#kbpromote--log-only).
+State changes are logged: `kb/write` records a tool-performed card write, `kb/edit` records a content edit (the changed field names; the card file stays the content source of truth), `kb/promote` records a lifecycle transition, `kb/team-join` records a personal card entering the team library through the first gate, `kb/injected` records one knowledge-pack injection at session start, and `kb/recap` records one recap scan's checkpoint advancement (the recorded positions and the listed blind spots). All are appended after the underlying operation succeeds, so the model-visible surface replays from the session log; `kb/injected` carries the full rendered card sections, so the `kb:pack` prompt section reconstructs from the log alone. The full payload declarations live in the [persistence catalog](../persistence-catalog.md#kbpromote--log-only).
 
 ## Knowledge packs
 
@@ -123,7 +123,7 @@ Three methodology skills register on the skills registry when a skills service i
 
 ## Web workbench
 
-The human surface is a web settings section (`kb-workbench`) composed from `@deepseek-ai/dsh-kb-web` (host Remote service `ctx.kbWorkbench` under the `kbWorkbench` namespace), `@deepseek-ai/dsh-client-ui-kb-workbench` (browser half), and kb-core — see the [kb-web overlay example](../../examples/kb-web/cordis.yml). The workbench renders the merged pending-review list (freshness + unrecorded recap blind spots, detected without recording so the checkpoint queue stays with the tool and the scheduler), full card reads, five flywheel metrics projected from `kb/*` events and their persisted files, and the lifecycle actions (promote / archive / revive / review) — thin event-appending wrappers over the existing `ctx.kb` methods that append the same `kb/promote` events the tools append to the workbench session's own log. No second state machine or event stream exists.
+The human surface is a web settings section (`kb-workbench`) composed from `@deepseek-ai/dsh-kb-web` (host Remote service `ctx.kbWorkbench` under the `kbWorkbench` namespace), `@deepseek-ai/dsh-client-ui-kb-workbench` (browser half), and kb-core — see the [kb-web overlay example](../../examples/kb-web/cordis.yml). The workbench renders the merged pending-review list (freshness + unrecorded recap blind spots, detected without recording so the checkpoint queue stays with the tool and the scheduler), full card reads, five flywheel metrics projected from `kb/*` events and their persisted files, and the lifecycle actions (promote / archive / revive / review) — thin event-appending wrappers over the existing `ctx.kb` methods that append the same `kb/promote` events the tools append to the workbench session's own log. The content-edit action (`edit`) applies a card-content patch through `KbService.editCard` — the optimistic mtime/size conflict guard and the team-edit approval gate (under `teamWriteApproval`) are enforced there — and appends `kb/edit` when anything changed; both libraries edit in place. No second state machine or event stream exists.
 
 ## MCP exposure
 
@@ -190,8 +190,24 @@ async search(root: string, request: SearchRequest): Promise<SearchOutcome>
 async promote(root: string, id: CardId, target: CardStatus, evidence?: string): Promise<PromoteResult>
 
 /**
+ * Edit one card's content across the personal and team libraries: validate
+ * the patch at the wire boundary, apply it preserving `id` / `库` / `状态`,
+ * guard against concurrent modification via the expected file identity, and
+ * rewrite in place. A team-card edit requires `options.approved` when
+ * `KbConfig.teamWriteApproval` is set. The caller (workbench) appends
+ * `kb/edit` when the result's `fields` are non-empty.
+ * @param root - the session workspace root.
+ * @param id - the card id.
+ * @param patch - the content-field patch.
+ * @param options - the optimistic guard and the team approval signal.
+ * @returns the edited card with the changed field names.
+ */
+async editCard(root: string, id: CardId, patch: CardEditPatch, options?: EditCardOptions): Promise<CardEditResult>
+
+/**
  * Run the incremental ingest over a source directory into the library at
- * `options.root` (see {@link importDir}).
+ * `options.root` (see {@link importDir}). A wrapped card's 有效期 defaults
+ * to `now + cardTtlDays` when the options omit it.
  * @param options - import options.
  * @returns the import outcome.
  */
@@ -325,7 +341,7 @@ freshnessReview(root: string, today?: string): Promise<FreshnessReview>
 async recap(root: string, limit: number): Promise<RecapScanResult>
 ```
 
-Source: [`packages/kb/kb-core/src/index.ts:301`](../../packages/kb/kb-core/src/index.ts)
+Source: [`packages/kb/kb-core/src/index.ts:318`](../../packages/kb/kb-core/src/index.ts)
 
 <a id="ctxkbworkbench--kbworkbenchservice"></a>
 
@@ -348,10 +364,24 @@ Source: [`packages/kb/kb-core/src/index.ts:301`](../../packages/kb/kb-core/src/i
  * Read one full card across the personal and team libraries.
  * @param session - the workbench session (its cwd is the workspace root).
  * @param id - the card id.
- * @returns the card view with its library, tier, path, and derived grade.
+ * @returns the card view with its library, tier, path, derived grade, and
+ * file identity (the edit conflict guard's expected values).
  * @throws when no library holds the id.
  */
 @Remote('card') async card(session: Session, id: string): Promise<KbWorkbenchCard>
+
+/**
+ * The content-edit action: apply the patch through `KbService.editCard`
+ * (conflict-guarded, team-gated) and append `kb/edit` to the workbench
+ * session's log when the edit changed anything. The card file stays the
+ * content source of truth, exactly like `kb_write`'s `kb/write` event.
+ * @param session - the workbench session (its cwd is the workspace root).
+ * @param id - the card id.
+ * @param patch - the content-field patch.
+ * @param options - the expected file identity and the team approval signal.
+ * @returns the refreshed card view.
+ */
+@Remote('edit') async edit(session: Session, id: string, patch: KbWorkbenchEditPatch, options?: KbWorkbenchEditOptions): Promise<KbWorkbenchCard>
 
 /**
  * The promotion action: apply the transition and append `kb/promote` to the

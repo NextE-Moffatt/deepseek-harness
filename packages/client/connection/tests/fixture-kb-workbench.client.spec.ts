@@ -48,4 +48,24 @@ describe('fixture kbWorkbench remote', () => {
     const reviewed = await kbRpc('kbWorkbench/review', { id: 'rule-20260818-001', approved: true })
     expect((reviewed.value as { 状态: string; changed: boolean }).changed).toBe(true)
   })
+
+  it('applies a content edit to the served card detail', async () => {
+    // One client instance: the fixture's card state is per-instance, so the
+    // edit and the follow-up detail read must share it.
+    const client = new FixtureApiClient()
+    const rpc = (endpoint: string, args: Record<string, unknown>): ReturnType<typeof kbRpc> =>
+      client.rpc.call('/api', endpoint, { args: { sessionId: sid('fx-alpha'), ...args } })
+    const edited = await rpc('kbWorkbench/edit', {
+      id: 'rule-20260818-001',
+      patch: { title: '编辑后的标题', 标签: ['告警', '值班'] },
+    })
+    expect(edited.ok).toBe(true)
+    expect((edited.value as { card: { title: string; 标签: string[] } }).card.title).toBe('编辑后的标题')
+    // The detail endpoint now serves the edited card (the assembled journey
+    // refreshes the detail after save).
+    const card = await rpc('kbWorkbench/card', { id: 'rule-20260818-001' })
+    expect((card.value as { card: { title: string; 标签: string[] } }).card).toMatchObject({
+      title: '编辑后的标题', 标签: ['告警', '值班'],
+    })
+  })
 })

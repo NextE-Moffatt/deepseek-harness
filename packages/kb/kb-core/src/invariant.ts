@@ -75,6 +75,20 @@ function validatePromote(value: unknown, fail: InvariantFailure): void {
   }
 }
 
+/** Validate a `kb/edit` payload: a non-empty card id, a closed-enum library, and a non-empty changed-field list. */
+function validateEdit(value: unknown, fail: InvariantFailure): void {
+  const data = value as Record<string, unknown>
+  if (typeof data['id'] !== 'string' || data['id'] === '') fail('kb/edit id must be a non-empty string')
+  if (typeof data['library'] !== 'string' || !CARD_LIBRARIES.includes(data['library'] as CardLibrary)) {
+    fail(`kb/edit library must be one of ${CARD_LIBRARIES.join(', ')}`)
+  }
+  const fields = data['fields']
+  if (!Array.isArray(fields) || fields.length === 0) fail('kb/edit fields must be a non-empty array')
+  for (const field of fields) {
+    if (typeof field !== 'string' || field === '') fail('kb/edit fields must contain only non-empty strings')
+  }
+}
+
 /** Validate a `kb/injected` payload: a non-empty pack, and matching card-id and section faces. */
 function validateInjected(value: unknown, fail: InvariantFailure): void {
   const data = value as Record<string, unknown>
@@ -154,6 +168,7 @@ function validateRecap(value: unknown, fail: InvariantFailure): void {
 /** Validate the package-owned event fields and ignore unrelated events. */
 function validateEvent(event: SessionEvent, fail: InvariantFailure): void {
   if (event.type === 'kb/write') validateWrite(event.data, fail)
+  if (event.type === 'kb/edit') validateEdit(event.data, fail)
   if (event.type === 'kb/promote') validatePromote(event.data, fail)
   if (event.type === 'kb/injected') validateInjected(event.data, fail)
   if (event.type === 'kb/team-join') validateTeamJoin(event.data, fail)

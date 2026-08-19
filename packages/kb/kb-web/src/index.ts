@@ -20,7 +20,7 @@ import type {
   Card, CardId, CardStatus, FreshnessReview, HeatRow, RecapSessionLog,
 } from '@deepseek-ai/dsh-kb-core'
 import type {
-  KbBlindSpotView, KbFlywheelMetrics, KbTopHeatEntry, KbWorkbenchCard, KbWorkbenchOverview,
+  KbBlindSpotView, KbFlywheelMetrics, KbTopHeatEntry, KbWorkbenchCard, KbWorkbenchEditOptions, KbWorkbenchEditPatch, KbWorkbenchOverview,
 } from './types.ts'
 
 export type * from './types.ts'
@@ -207,7 +207,8 @@ export class KbWorkbenchService extends TypertRemoteService {
    * Read one full card across the personal and team libraries.
    * @param session - the workbench session (its cwd is the workspace root).
    * @param id - the card id.
-   * @returns the card view with its library, tier, path, and derived grade.
+   * @returns the card view with its library, tier, path, derived grade, and
+   * file identity (the edit conflict guard's expected values).
    * @throws when no library holds the id.
    */
   @Remote('card')
@@ -223,6 +224,8 @@ export class KbWorkbenchService extends TypertRemoteService {
         tier: personal.tier,
         path: personal.path,
         grade: gradeCard(personal.card, scanDate()),
+        mtime: personal.mtime,
+        size: personal.size,
       }
     }
     const team = await kb.teamCard(root, cardId)
@@ -233,9 +236,32 @@ export class KbWorkbenchService extends TypertRemoteService {
         tier: 'team',
         path: team.path,
         grade: gradeCard(team.card, scanDate()),
+        mtime: team.mtime,
+        size: team.size,
       }
     }
     throw new Error(`card not found: ${id}`)
+  }
+
+  /**
+   * The content-edit action: apply the patch through `KbService.editCard`
+   * (conflict-guarded, team-gated) and append `kb/edit` to the workbench
+   * session's log when the edit changed anything. The card file stays the
+   * content source of truth, exactly like `kb_write`'s `kb/write` event.
+   * @param session - the workbench session (its cwd is the workspace root).
+   * @param id - the card id.
+   * @param patch - the content-field patch.
+   * @param options - the expected file identity and the team approval signal.
+   * @returns the refreshed card view.
+   */
+  @Remote('edit')
+  async edit(session: Session, id: string, patch: KbWorkbenchEditPatch, options?: KbWorkbenchEditOptions): Promise<KbWorkbenchCard> {
+    const root = this.requireRoot(session)
+    const result = await this.ctx.kb.editCard(root, id as CardId, patch, options)
+    if (result.fields.length > 0) {
+      session.append('kb/edit', { id: result.card.id, library: result.library, fields: result.fields })
+    }
+    return this.card(session, id)
   }
 
   /**

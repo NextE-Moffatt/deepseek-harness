@@ -904,7 +904,7 @@ export type CardLibrary = 'personal' | 'team'
 export type CardStatus = 'draft' | 'pending' | 'ready' | 'archived' | 'revived'
 ```
 
-Source: [`packages/kb/kb-core/src/index.ts:96`](../packages/kb/kb-core/src/index.ts)
+Source: [`packages/kb/kb-core/src/index.ts:101`](../packages/kb/kb-core/src/index.ts)
 
 <a id="deepseek-aidsh-kb-mcp-server"></a>
 

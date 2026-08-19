@@ -126,15 +126,49 @@ export interface RecapBlindSpot {
 }
 
 /**
+ * The content fields an edit may change; absent fields keep their current
+ * value. `反例` / `来源` accept an empty string to clear the field. The
+ * identity (`id`), library (`库`), and lifecycle (`状态`) fields are not
+ * editable — they stay with the file name, the dual gate, and the state
+ * machine respectively.
+ */
+export interface CardEditPatch {
+  /** Card type. */
+  type?: CardType
+  /** One-sentence title. */
+  title?: string
+  /** When to use this card. */
+  适用条件?: string
+  /** The conclusion in one paragraph. */
+  核心结论?: string
+  /** Executable positive actions; may become empty on edit. */
+  应做?: string[]
+  /** Executable negative actions; may become empty on edit. */
+  不应做?: string[]
+  /** Optional real counter-example; an empty string clears it. */
+  反例?: string
+  /** Objective evidence; an empty string clears it. */
+  来源?: string
+  /** Knowledge owner. */
+  责任人?: string
+  /** Expiry date `YYYY-MM-DD`. */
+  有效期?: string
+  /** Tags. */
+  标签?: string[]
+}
+
+/**
  * The `kb/*` session events (model-visible state changes are logged, per the
  * model-visible ⟺ logged invariant). `kb/write` records a card write performed
- * by a tool; `kb/promote` records a lifecycle transition; `kb/injected`
- * records one knowledge-pack injection, carrying the full rendered content so
- * the `kb:pack` prompt section replays from the log alone; `kb/recap` records
- * one recap scan's checkpoint advancement (the listed blind spots and their
- * recorded positions) so the recap queue replays from the log alone. Tools
- * append these after the underlying file operation succeeds; the injection
- * listener appends `kb/injected` synchronously at `agent/session-start`.
+ * by a tool; `kb/promote` records a lifecycle transition; `kb/edit` records a
+ * content edit (the changed field names — the card file at its path stays the
+ * content source of truth); `kb/injected` records one knowledge-pack
+ * injection, carrying the full rendered content so the `kb:pack` prompt
+ * section replays from the log alone; `kb/recap` records one recap scan's
+ * checkpoint advancement (the listed blind spots and their recorded positions)
+ * so the recap queue replays from the log alone. Tools append these after the
+ * underlying file operation succeeds; the injection listener appends
+ * `kb/injected` synchronously at `agent/session-start`.
  */
 declare module '@deepseek-ai/dsh-session/types' {
   interface SessionEventMap {
@@ -147,6 +181,14 @@ declare module '@deepseek-ai/dsh-session/types' {
       status: CardStatus
       title: string
       path: string
+    }
+    /** A card's content was edited (the workbench or a future edit consumer):
+     * `fields` names the changed content fields; the card file at its path is
+     * the content source of truth, exactly like `kb/write`. */
+    'kb/edit': {
+      id: CardId
+      library: CardLibrary
+      fields: string[]
     }
     /** A card's lifecycle state transitioned from `from` to `to` through the
      * promotion state machine; `evidence` carries the optional objective signal. */

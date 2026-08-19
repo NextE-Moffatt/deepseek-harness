@@ -48,6 +48,8 @@ export function apply(ctx: ClientContext): void {
     revive: (sessionId: SessionId, id: string) => ctx.remote.kbWorkbench.revive(sessionId, id),
     review: (sessionId: SessionId, id: string, approved: boolean) =>
       ctx.remote.kbWorkbench.review(sessionId, id, approved),
+    edit: (sessionId: SessionId, id: string, patch, options) =>
+      ctx.remote.kbWorkbench.edit(sessionId, id, patch, options),
   })
 
   ctx.slots.inject('settings.section', () => ctx.slots.register({

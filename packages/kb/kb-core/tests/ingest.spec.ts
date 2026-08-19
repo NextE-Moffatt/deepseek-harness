@@ -75,22 +75,6 @@ describe('importDir', () => {
     expect(info?.card.核心结论).toBe('数据源结论 v2 —— 更长的结论内容')
   })
 
-  it('skips and counts raw non-card files without importing them', async () => {
-    const { store, sourceDir } = await makeWorkspace()
-    const raw = join(sourceDir, 'note.md')
-    await writeFile(raw, '# 随手记\n随便写点什么\n', 'utf8')
-    await writeFile(join(sourceDir, 'readme.txt'), 'not markdown', 'utf8')
-    await writeFile(join(sourceDir, 'card.md'), CARD_TEXT, 'utf8')
-    const first = await importDir(store, { root: store.root, sourceDir, tier: 'P2' })
-    expect(first).toEqual({ imported: ['rule-20250818-001' as Card['id']], skipped: 0, skippedRaw: 1 })
-    expect(await store.find('rule-20250818-001' as Card['id'])).toBeDefined()
-
-    // Unchanged raw files stay skipped.
-    const second = await importDir(store, { root: store.root, sourceDir, tier: 'P2' })
-    expect(second.skipped).toBe(1)
-    expect(second.skippedRaw).toBe(1)
-  })
-
   it('prunes checkpoint entries for vanished source files', async () => {
     const { store, sourceDir } = await makeWorkspace()
     const source = join(sourceDir, 'rule.md')
@@ -142,5 +126,136 @@ describe('importDir', () => {
     await writeFile(join(sourceDir, 'blocker.md'), 'x', 'utf8')
     await expect(importDir(store, { root: store.root, sourceDir: join(sourceDir, 'blocker.md'), tier: 'P2' }))
       .rejects.toThrow()
+  })
+})
+
+describe('raw-note wrapping', () => {
+  it('wraps a raw note with a heading into a draft howto card with inferred fields', async () => {
+    const { store, sourceDir } = await makeWorkspace()
+    const source = join(sourceDir, 'note.md')
+    await writeFile(source, '# 值班记录\n\n先确认影响面，再处置。\n- 记录一\n- 记录二\n', 'utf8')
+    const result = await importDir(store, { root: store.root, sourceDir, tier: 'P2' })
+    expect(result.skippedRaw).toBe(0)
+    expect(result.imported).toHaveLength(1)
+    const id = result.imported[0]!
+    expect(id).toMatch(/^howto-\d{8}-001$/)
+    const info = await store.find(id)
+    expect(info?.tier).toBe('P2')
+    expect(info?.card).toMatchObject({
+      id, type: 'howto', title: '值班记录',
+      库: 'personal', 状态: 'draft',
+      适用条件: '先确认影响面，再处置。',
+      核心结论: '先确认影响面，再处置。\n- 记录一\n- 记录二',
+      应做: [], 不应做: [],
+      来源: source, 责任人: '导入', 标签: [],
+    })
+    expect(info?.card.有效期).toMatch(/^\d{4}-\d{2}-\d{2}$/)
+  })
+
+  it('falls back to the basename when the note has no heading and derives no tag at the source root', async () => {
+    const { store, sourceDir } = await makeWorkspace()
+    await writeFile(join(sourceDir, 'plain-notes.md'), '没有标题的内容\n', 'utf8')
+    const result = await importDir(store, { root: store.root, sourceDir, tier: 'P2' })
+    const card = (await store.find(result.imported[0]!))!.card
+    expect(card.title).toBe('plain-notes')
+    expect(card.标签).toEqual([])
+  })
+
+  it('derives one tag from the parent directory of a nested note', async () => {
+    const { store, sourceDir } = await makeWorkspace()
+    await mkdir(join(sourceDir, '运维'))
+    await writeFile(join(sourceDir, '运维', 'deep.md'), '# 深目录\n# 二级标题\n正文行\n', 'utf8')
+    const result = await importDir(store, { root: store.root, sourceDir, tier: 'P2' })
+    const card = (await store.find(result.imported[0]!))!.card
+    expect(card.标签).toEqual(['运维'])
+    // The conclusion drops heading lines so re-parsing stays valid.
+    expect(card.核心结论).toBe('正文行')
+  })
+
+  it('skips and counts empty and heading-only notes without importing them', async () => {
+    const { store, sourceDir } = await makeWorkspace()
+    await writeFile(join(sourceDir, 'empty.md'), '', 'utf8')
+    await writeFile(join(sourceDir, 'heading-only.md'), '# 只有标题\n', 'utf8')
+    const first = await importDir(store, { root: store.root, sourceDir, tier: 'P2' })
+    expect(first).toEqual({ imported: [], skipped: 0, skippedRaw: 2 })
+    // Unchanged unwrappable notes skip via the checkpoint.
+    const second = await importDir(store, { root: store.root, sourceDir, tier: 'P2' })
+    expect(second.skippedRaw).toBe(2)
+    expect(second.skipped).toBe(0)
+  })
+
+  it('skips and counts a front-matter-malformed file instead of wrapping it', async () => {
+    const { store, sourceDir } = await makeWorkspace()
+    await writeFile(join(sourceDir, 'broken.md'), '---\nid: rule-20250818-099\n---\n正文\n', 'utf8')
+    const result = await importDir(store, { root: store.root, sourceDir, tier: 'P2' })
+    expect(result).toEqual({ imported: [], skipped: 0, skippedRaw: 1 })
+    expect(await store.find('rule-20250818-099' as Card['id'])).toBeUndefined()
+  })
+
+  it('counts non-markdown files as skipped raw every run without checkpointing them', async () => {
+    const { store, sourceDir } = await makeWorkspace()
+    await writeFile(join(sourceDir, 'readme.txt'), 'not markdown', 'utf8')
+    await writeFile(join(sourceDir, 'card.md'), CARD_TEXT, 'utf8')
+    const first = await importDir(store, { root: store.root, sourceDir, tier: 'P2' })
+    expect(first.skippedRaw).toBe(1)
+    expect(first.imported).toEqual(['rule-20250818-001' as Card['id']])
+    // The card is checkpointed; the text file is recounted.
+    const second = await importDir(store, { root: store.root, sourceDir, tier: 'P2' })
+    expect(second).toEqual({ imported: [], skipped: 1, skippedRaw: 1 })
+  })
+
+  it('ignores symlink entries that are neither directories nor files', async () => {
+    const { store, sourceDir } = await makeWorkspace()
+    await writeFile(join(sourceDir, 'target.md'), '# 目标\n内容\n', 'utf8')
+    await import('node:fs/promises').then(fs => fs.symlink(join(sourceDir, 'target.md'), join(sourceDir, 'link.md')))
+    const result = await importDir(store, { root: store.root, sourceDir, tier: 'P2' })
+    expect(result).toEqual({ imported: [expect.stringMatching(/^howto-\d{8}-001$/) as Card['id']], skipped: 0, skippedRaw: 0 })
+  })
+
+  it('re-wraps a changed source into the same card, preserving its current status', async () => {
+    const { store, sourceDir } = await makeWorkspace()
+    const source = join(sourceDir, 'note.md')
+    await writeFile(source, '# 原始笔记\n原始结论\n', 'utf8')
+    const first = await importDir(store, { root: store.root, sourceDir, tier: 'P2' })
+    const id = first.imported[0]!
+    await store.rewrite({ ...(await store.find(id))!.card, 状态: 'pending' }, 'P2')
+
+    await new Promise(resolve => setTimeout(resolve, 5))
+    await writeFile(source, '# 原始笔记\n更新后的结论\n', 'utf8')
+    const second = await importDir(store, { root: store.root, sourceDir, tier: 'P2' })
+    expect(second.imported).toEqual([id])
+    const info = await store.find(id)
+    expect(info?.card.状态).toBe('pending')
+    expect(info?.card.核心结论).toBe('更新后的结论')
+    // An unchanged re-run skips the wrapped card via the checkpoint.
+    const third = await importDir(store, { root: store.root, sourceDir, tier: 'P2' })
+    expect(third).toEqual({ imported: [], skipped: 1, skippedRaw: 0 })
+  })
+
+  it('sequences wrapped card ids and honors an explicit 有效期 horizon', async () => {
+    const { store, sourceDir } = await makeWorkspace()
+    await writeFile(join(sourceDir, 'a.md'), '# A\n甲\n', 'utf8')
+    await writeFile(join(sourceDir, 'b.md'), '# B\n乙\n', 'utf8')
+    const result = await importDir(store, { root: store.root, sourceDir, tier: 'P2', cardTtlDays: 30 })
+    const now = new Date()
+    const dateKey = `${now.getFullYear()}${String(now.getMonth() + 1).padStart(2, '0')}${String(now.getDate()).padStart(2, '0')}`
+    expect([...result.imported].sort()).toEqual([`howto-${dateKey}-001` as Card['id'], `howto-${dateKey}-002` as Card['id']].sort())
+    const info = await store.find(`howto-${dateKey}-002` as Card['id'])
+    const expected = new Date()
+    expected.setDate(expected.getDate() + 30)
+    const expectedKey = `${expected.getFullYear()}-${String(expected.getMonth() + 1).padStart(2, '0')}-${String(expected.getDate()).padStart(2, '0')}`
+    expect(info?.card.有效期).toBe(expectedKey)
+  })
+
+  it('truncates the conclusion and the condition to their caps', async () => {
+    const { store, sourceDir } = await makeWorkspace()
+    const longLine = '字'.repeat(300)
+    const body = '长'.repeat(1500)
+    await writeFile(join(sourceDir, 'long.md'), `# 长文\n${longLine}\n${body}\n`, 'utf8')
+    const result = await importDir(store, { root: store.root, sourceDir, tier: 'P2' })
+    const card = (await store.find(result.imported[0]!))!.card
+    expect(card.适用条件).toBe(longLine.slice(0, 200))
+    expect(card.核心结论.length).toBe(1000)
+    expect(card.核心结论).toBe(`${longLine}\n${body.slice(0, 699)}`)
   })
 })
