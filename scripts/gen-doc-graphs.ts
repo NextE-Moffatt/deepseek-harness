@@ -292,6 +292,13 @@ const SERVICE_ROLES: ServiceRole[] = [
     note: 'Owns card write/read, the promotion state machine, FTS5 search with the scan degradation contract, incremental ingest, and the kb_* tools; tools append the kb/* session events.',
   },
   {
+    key: 'kbWorkbench',
+    pkg: 'kb-web',
+    title: 'Knowledge-base governance workbench',
+    mode: 'core',
+    note: 'Remote service over ctx.kb exposing the merged pending-review list, card reads, flywheel metrics, and the lifecycle actions; actions append the same kb/promote events the tools append.',
+  },
+  {
     key: 'agentPresets',
     pkg: 'agent-presets',
     title: 'Per-session agent composition',

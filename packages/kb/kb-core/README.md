@@ -136,7 +136,7 @@ Prefix-stable while the injected packs are unchanged; the section follows the re
 - **Blind spots are surfaced once per session length** — a listed blind spot is recorded and not re-listed until its session's log grows; the historical lists rebuild from the `kb/recap` events.
 - **Recap scans live and persisted sessions of the current process** — the optional `sessionPersistence` service extends the scan to persisted logs; cross-process log stores outside the harness are not scanned.
 - **Vector/RAG retrieval is deferred** — FTS5 + structured filters are the milestone-1 contract; the kb-search seam absorbs a vector backend past ~500 team cards (design §4.4).
-- **Web workbench and MCP exposure are deferred** — the roadmap milestones 5+.
+- **Web workbench and MCP exposure live in sibling packages** — the governance workbench (`@deepseek-ai/dsh-kb-web` + `@deepseek-ai/dsh-client-ui-kb-workbench`) and the read-only MCP server (`@deepseek-ai/dsh-kb-mcp-server`) compose kb-core; both are opt-in, outside the shipped bundles.
 - **Search reparses the library per sync** — each `search` re-reads and re-parses every card file; the index write is diffed by mtime/size, but parse cost is linear in library size.
 - **Raw-note ingestion is deferred** — `importDir` imports card-shaped files and counts raw files as skipped; wrapping notes into cards is the recap/distill milestone's job, and scheduling through `ctx.jobs` awaits a real connector.
 - **Chinese search is character-based** — CJK runs are char-split in the FTS index so substring queries match without a segmentation dictionary; ranking and phrase semantics differ from word-segmented search, and a one-character query matches any card containing that character.

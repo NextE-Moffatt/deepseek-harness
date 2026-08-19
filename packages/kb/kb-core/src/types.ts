@@ -6,7 +6,7 @@
  */
 
 import type { Branded } from '@deepseek-ai/dsh-brand'
-import type { SessionId } from '@deepseek-ai/dsh-session'
+import type { SessionId } from '@deepseek-ai/dsh-session/types'
 
 /**
  * A knowledge-card id, unique across one library. The design's id format is
@@ -180,4 +180,75 @@ declare module '@deepseek-ai/dsh-session/types' {
       listed: number
     }
   }
+}
+
+/** One card's freshness position relative to today. */
+export interface FreshnessPosition {
+  /** Whether the card's 有效期 is before today. */
+  overdue: boolean
+  /** Whether the card expires within the warning window (not yet overdue). */
+  expiringSoon: boolean
+  /** Days from today to 有效期; negative when overdue. */
+  daysLeft: number
+}
+
+/** The freshness recommendation for one card, feeding archive/revive/review. */
+export type FreshnessRecommendation = 'renew' | 'review' | 'archive-candidate' | 'revive-candidate'
+
+/** One entry of the pending-review list produced by the freshness scan. */
+export interface ReviewEntry {
+  /** Card id. */
+  id: string
+  /** Card title. */
+  title: string
+  /** Library the card lives in. */
+  library: CardLibrary
+  /** Lifecycle state. */
+  status: CardStatus
+  /** Quality grade derived from status and expiry. */
+  grade: CardGrade
+  /** Expiry date `YYYY-MM-DD`. */
+  有效期: string
+  /** Days from the scan date to 有效期; negative when overdue. */
+  daysLeft: number
+  /** Consumption count from the heat ledger. */
+  heat: number
+  /** The governance recommendation. */
+  recommend: FreshnessRecommendation
+}
+
+/** The freshness scan outcome: the pending-review list split into overdue and expiring-soon. */
+export interface FreshnessReview {
+  /** Cards past their 有效期. */
+  overdue: ReviewEntry[]
+  /** Cards expiring within the warning window. */
+  expiringSoon: ReviewEntry[]
+  /** Total flagged cards. */
+  total: number
+}
+
+/** One heat ledger entry: one card consumed by one session through one pack. */
+export interface HeatEntry {
+  /** The consumed card id. */
+  cardId: CardId
+  /** The consuming session id. */
+  sessionId: SessionId
+  /** ISO timestamp of the consumption event. */
+  at: string
+  /** The pack that injected the card. */
+  pack: string
+}
+
+/** One aggregated heat row: a card's consumption across the ledger. */
+export interface HeatRow {
+  /** The consumed card id. */
+  cardId: CardId
+  /** Total consumption count. */
+  count: number
+  /** ISO timestamp of the most recent consumption. */
+  lastAt: string
+  /** The distinct consuming session ids, sorted. */
+  sessions: string[]
+  /** The distinct injecting packs, sorted. */
+  packs: string[]
 }

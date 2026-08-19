@@ -14,34 +14,10 @@ import { dirname, resolve } from 'node:path'
 import type { Context } from '@deepseek-ai/cordis'
 import type { Session, SessionEvent, SessionId } from '@deepseek-ai/dsh-session'
 import { readJsonLines } from './jsonl.ts'
-import type { CardId } from './types.ts'
+import type { HeatEntry, HeatRow } from './types.ts'
 import type { KbService } from './index.ts'
 
-/** One heat ledger entry: one card consumed by one session through one pack. */
-export interface HeatEntry {
-  /** The consumed card id. */
-  cardId: CardId
-  /** The consuming session id. */
-  sessionId: SessionId
-  /** ISO timestamp of the consumption event. */
-  at: string
-  /** The pack that injected the card. */
-  pack: string
-}
-
-/** One aggregated heat row: a card's consumption across the ledger. */
-export interface HeatRow {
-  /** The consumed card id. */
-  cardId: CardId
-  /** Total consumption count. */
-  count: number
-  /** ISO timestamp of the most recent consumption. */
-  lastAt: string
-  /** The distinct consuming session ids, sorted. */
-  sessions: string[]
-  /** The distinct injecting packs, sorted. */
-  packs: string[]
-}
+export type { HeatEntry, HeatRow } from './types.ts'
 
 /**
  * Project one session log into heat entries: every `kb/injected` event yields

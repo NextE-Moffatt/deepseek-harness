@@ -4,6 +4,10 @@ English | [中文](README.zh.md)
 
 Runnable demonstrations of the main DeepSeek Harness interfaces and extension points. Each child directory owns its configuration, prerequisites, commands, and detailed behavior.
 
+## kb-web
+
+An opt-in Web overlay for the knowledge-base governance workbench: the pending-review list, card detail, lifecycle actions, and flywheel dashboard in the browser settings. Run `dsh web --patch examples/kb-web/cordis.yml`; see [kb-web/README.md](kb-web/README.md).
+
 ## mcp-memory
 
 Optional overlays that connect supported third-party memory servers through the generic MCP client. See the [memory example reference](mcp-memory/README.md).

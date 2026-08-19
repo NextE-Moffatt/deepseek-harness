@@ -73,6 +73,7 @@ export const SERVICE_PAGE: Record<string, string> = {
   webServer: 'web-server.md',
   invariants: 'invariants.md',
   kb: 'kb.md',
+  kbWorkbench: 'kb.md',
   llm: 'llm-streaming.md',
   lsp: 'lsp.md',
   messageFeedback: 'feedback.md',
@@ -507,6 +508,8 @@ export const FOUNDATION_TYPE_NAMES: ReadonlySet<string> = new Set([
 /** Project types deliberately documented outside the subsystems catalog. */
 export const TYPE_LINK_EXEMPTIONS: Readonly<Record<string, string>> = {
   CardWriteResult: 'kb service output is owned by packages/kb/kb-core/README.md',
+  KbWorkbenchOverview: 'kb workbench overview is owned by packages/kb/kb-web/README.md',
+  KbWorkbenchCard: 'kb workbench card view is owned by packages/kb/kb-web/README.md',
   WriteCardInput: 'kb service input is owned by packages/kb/kb-core/README.md',
   CardFileInfo: 'kb storage entry is owned by packages/kb/kb-core/README.md',
   SearchOutcome: 'kb search output is owned by packages/kb/kb-core/README.md',

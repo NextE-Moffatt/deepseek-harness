@@ -9,6 +9,9 @@
  */
 
 import type { Card, CardGrade, CardLibrary, CardStatus } from './types.ts'
+import type { FreshnessPosition, FreshnessRecommendation, FreshnessReview, ReviewEntry } from './types.ts'
+
+export type { FreshnessPosition, FreshnessRecommendation, FreshnessReview, ReviewEntry } from './types.ts'
 
 /** The first-gate verdict: evidence satisfied (PASS) or not (BLOCK). */
 export interface GateVerdict {
@@ -17,19 +20,6 @@ export interface GateVerdict {
   /** The blocking reasons; empty on PASS. */
   reasons: string[]
 }
-
-/** One card's freshness position relative to today. */
-export interface FreshnessPosition {
-  /** Whether the card's 有效期 is before today. */
-  overdue: boolean
-  /** Whether the card expires within the warning window (not yet overdue). */
-  expiringSoon: boolean
-  /** Days from today to 有效期; negative when overdue. */
-  daysLeft: number
-}
-
-/** The freshness recommendation for one card, feeding archive/revive/review. */
-export type FreshnessRecommendation = 'renew' | 'review' | 'archive-candidate' | 'revive-candidate'
 
 /**
  * Evaluate the first gate (design §5.3): a personal draft with objective
@@ -115,28 +105,6 @@ export function recommendFreshness(
   return 'renew'
 }
 
-/** One entry of the pending-review list produced by the freshness scan. */
-export interface ReviewEntry {
-  /** Card id. */
-  id: string
-  /** Card title. */
-  title: string
-  /** Library the card lives in. */
-  library: CardLibrary
-  /** Lifecycle state. */
-  status: CardStatus
-  /** Quality grade derived from status and expiry. */
-  grade: CardGrade
-  /** Expiry date `YYYY-MM-DD`. */
-  有效期: string
-  /** Days from the scan date to 有效期; negative when overdue. */
-  daysLeft: number
-  /** Consumption count from the heat ledger. */
-  heat: number
-  /** The governance recommendation. */
-  recommend: FreshnessRecommendation
-}
-
 /**
  * Build one review-list entry from a card, its library, heat, and today.
  * @param card - the card.
@@ -165,16 +133,6 @@ export function toReviewEntry(
     heat,
     recommend: recommendFreshness(card.状态, heat, position),
   }
-}
-
-/** The freshness scan outcome: the pending-review list split into overdue and expiring-soon. */
-export interface FreshnessReview {
-  /** Cards past their 有效期. */
-  overdue: ReviewEntry[]
-  /** Cards expiring within the warning window. */
-  expiringSoon: ReviewEntry[]
-  /** Total flagged cards. */
-  total: number
 }
 
 /**

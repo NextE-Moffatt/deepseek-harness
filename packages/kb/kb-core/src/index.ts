@@ -33,6 +33,7 @@ import { registerKbTools } from './tools.ts'
 import type { Card, CardId, CardStatus, CardTier, CardType, KnowledgePack } from './types.ts'
 
 export type * from './types.ts'
+export { todayString } from './date.ts'
 export {
   CARD_LIBRARIES, CARD_STATUSES, CARD_TIERS, CARD_TYPES,
   isCardLibrary, isCardStatus, isCardTier, isCardType, isValidDateString,

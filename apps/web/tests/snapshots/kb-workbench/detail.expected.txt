@@ -1,0 +1,2 @@
+detail=IDrule-20260818-001LibrarypersonalTierP2StatusdraftGradePendingExpiry2026-08-19Owner本人Tags告警Sourcehttps://example.com/MR-1When to use值班收到告警Conclusion先确认影响面，再处置。Do确认影响面Don't直接重启
+actions=Promote to pending

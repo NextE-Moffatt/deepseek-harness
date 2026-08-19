@@ -1,0 +1,20 @@
+# Opt-in Web composition for the knowledge-base governance workbench.
+# kb-core, the kb-web workbench host half, and the workbench client plugin are
+# OPT-IN: they are not part of the shipped dsh-base / dsh-web-app bundles.
+# This file is a PATCH OVERLAY over the web profile, applied with:
+#   dsh web --patch examples/kb-web/cordis.yml
+# A patch inserts or replaces rows; the team library stays optional — set
+# teamRepoPath (absolute, or relative to the session workspace root) only when
+# a shared git repository exists.
+- insert:
+    - id: kb-core
+      name: '@deepseek-ai/dsh-kb-core'
+      config:
+        # teamRepoPath: /path/to/team-repo
+        packs: []
+
+    - id: kb-web
+      name: '@deepseek-ai/dsh-kb-web'
+
+    - id: kb-workbench
+      name: '@deepseek-ai/dsh-client-ui-kb-workbench'

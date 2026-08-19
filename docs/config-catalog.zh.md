@@ -906,7 +906,41 @@ export type CardLibrary = 'personal' | 'team'
 export type CardStatus = 'draft' | 'pending' | 'ready' | 'archived' | 'revived'
 ```
 
-Source: [`packages/kb/kb-core/src/index.ts:77`](../packages/kb/kb-core/src/index.ts)
+Source: [`packages/kb/kb-core/src/index.ts:96`](../packages/kb/kb-core/src/index.ts)
+
+<a id="deepseek-aidsh-kb-mcp-server"></a>
+
+## `@deepseek-ai/dsh-kb-mcp-server`
+
+需要：`kb`
+
+```ts config-catalog
+/** Configuration for the kb MCP server. */
+export interface KbMcpServerConfig {
+  /** The workspace root whose reference pool this server exposes (absolute). */
+  root: string
+}
+```
+
+Source: [`packages/kb/kb-mcp-server/src/index.ts:36`](../packages/kb/kb-mcp-server/src/index.ts)
+
+<a id="deepseek-aidsh-kb-web"></a>
+
+## `@deepseek-ai/dsh-kb-web`
+
+需要：`kb`
+
+```ts config-catalog
+/** Deployment configuration of the kb workbench service. */
+export interface KbWebConfig {
+  /** Cap on the unrecorded blind spots the overview lists (default 20). */
+  blindSpotLimit?: number
+  /** How many top-heat cards the flywheel metrics carry (default 3). */
+  topHeatCount?: number
+}
+```
+
+Source: [`packages/kb/kb-web/src/index.ts:36`](../packages/kb/kb-web/src/index.ts)
 
 <a id="deepseek-aidsh-llm-deepseek"></a>
 
@@ -3113,6 +3147,7 @@ export interface Config {
 - `@deepseek-ai/dsh-client-ui-goal`（[`packages/client/ui-goal/src/index.ts`](../packages/client/ui-goal/src/index.ts)）
 - `@deepseek-ai/dsh-client-ui-input-trigger`（[`packages/client/ui-input-trigger/src/index.ts`](../packages/client/ui-input-trigger/src/index.ts)）
 - `@deepseek-ai/dsh-client-ui-jobs`（[`packages/client/ui-jobs/src/index.ts`](../packages/client/ui-jobs/src/index.ts)）
+- `@deepseek-ai/dsh-client-ui-kb-workbench`（[`packages/client/ui-kb-workbench/src/index.ts`](../packages/client/ui-kb-workbench/src/index.ts)）
 - `@deepseek-ai/dsh-client-ui-layout`（[`packages/client/ui-layout/src/index.ts`](../packages/client/ui-layout/src/index.ts)）
 - `@deepseek-ai/dsh-client-ui-message-feedback`（[`packages/client/ui-message-feedback/src/index.ts`](../packages/client/ui-message-feedback/src/index.ts)）
 - `@deepseek-ai/dsh-client-ui-model-selection`（[`packages/client/ui-model-selection/src/index.ts`](../packages/client/ui-model-selection/src/index.ts)）

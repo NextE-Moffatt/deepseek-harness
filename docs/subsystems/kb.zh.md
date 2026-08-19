@@ -2,7 +2,7 @@
 
 [English](kb.md) | 中文
 
-个人 + 团队知识库：`ctx.kb` 持有卡片读写、晋升状态机、带扫描降级契约的 FTS5 检索、增量采集、会话启动时的知识包注入、团队 git 库（cards/ + docs/）、双门禁治理与保鲜、热度遥测投影、复盘盲点扫描与其可选调度器、方法论技能，并注册 `kb_write` / `kb_read` / `kb_search` / `kb_promote` / `kb_gate_check` / `kb_team_promote` / `kb_team_read` / `kb_review` / `kb_archive` / `kb_revive` / `kb_team_status` / `kb_team_commit` / `kb_freshness` / `kb_recap` 工具。[里程碑 1 Agent Note](../../.agents/notes/implemented/feature/2026-08-18-dsh-kb-package-group-milestone-1.md) 持有包组决策，[注入 Agent Note](../../.agents/notes/implemented/feature/2026-08-18-dsh-kb-inject.md) 持有知识包决策，[里程碑 3 Agent Note](../../.agents/notes/implemented/feature/2026-08-19-dsh-kb-milestone-3.md) 持有团队库、治理与遥测决策，[里程碑 4 Agent Note](../../.agents/notes/implemented/feature/2026-08-19-dsh-kb-milestone-4-recap-and-skills.md) 持有复盘与技能决策；本页记录 [`packages/kb/kb-core/src/types.ts`](../../packages/kb/kb-core/src/types.ts) 的确切类型。
+个人 + 团队知识库：`ctx.kb` 持有卡片读写、晋升状态机、带扫描降级契约的 FTS5 检索、增量采集、会话启动时的知识包注入、团队 git 库（cards/ + docs/）、双门禁治理与保鲜、热度遥测投影、复盘盲点扫描与其可选调度器、方法论技能，并注册 `kb_write` / `kb_read` / `kb_search` / `kb_promote` / `kb_gate_check` / `kb_team_promote` / `kb_team_read` / `kb_review` / `kb_archive` / `kb_revive` / `kb_team_status` / `kb_team_commit` / `kb_freshness` / `kb_recap` 工具。[里程碑 1 Agent Note](../../.agents/notes/implemented/feature/2026-08-18-dsh-kb-package-group-milestone-1.md) 持有包组决策，[注入 Agent Note](../../.agents/notes/implemented/feature/2026-08-18-dsh-kb-inject.md) 持有知识包决策，[里程碑 3 Agent Note](../../.agents/notes/implemented/feature/2026-08-19-dsh-kb-milestone-3.md) 持有团队库、治理与遥测决策，[里程碑 4 Agent Note](../../.agents/notes/implemented/feature/2026-08-19-dsh-kb-milestone-4-recap-and-skills.md) 持有复盘与技能决策，[里程碑 5 Agent Note](../../.agents/notes/implemented/feature/2026-08-19-dsh-kb-milestone-5-workbench-and-mcp.md) 持有 web 工作台与 MCP 暴露决策；本页记录 [`packages/kb/kb-core/src/types.ts`](../../packages/kb/kb-core/src/types.ts) 的确切类型。
 
 ## Card model
 
@@ -120,6 +120,14 @@ interface PackSection {
 ## Skills
 
 挂载了 skills 服务时，三个方法论技能注册进 skills 注册表：`kb-card-writing`（卡片模板与 §4.3 质量检查清单，结构事实从解析器常量插值生成、不可能漂移）、`kb-recap-flow`（模式 B 步骤：何时跑 `kb_recap`、如何判断盲点、经 `kb_write` 蒸馏、再走双门禁）、`kb-pack-building`（`tags` / `tier` / `library` / `status` / `limit` 过滤语义）。没有 skills 服务的上下文记一次响亮错误并跳过。
+
+## Web 工作台
+
+人的界面是 web 设置页的一个 section（`kb-workbench`），由 `@deepseek-ai/dsh-kb-web`（主机 Remote 服务 `ctx.kbWorkbench`，namespace `kbWorkbench`）、`@deepseek-ai/dsh-client-ui-kb-workbench`（浏览器侧）与 kb-core 组合而成——见 [kb-web overlay 示例](../../examples/kb-web/cordis.yml)。工作台渲染合并待复核清单（保鲜 + 未记录复盘盲点，只检测不记录，检查点队列仍归工具与调度器）、完整卡片读取、由 `kb/*` 事件及其持久化文件投影的五个飞轮指标，以及生命周期动作（晋升 / 归档 / 复活 / 复核）——它们是对既有 `ctx.kb` 方法的薄事件追加包装，向工作台所在 session 自己的日志追加与工具相同的 `kb/promote` 事件。不存在第二状态机或事件流。
+
+## MCP 暴露
+
+`@deepseek-ai/dsh-kb-mcp-server` 把引用池作为只读 stdio Server 暴露给外部 MCP 客户端：`search_cards` / `read_card` / `freshness_review` / `heat`，每个 handler 都是经 `ctx.kb` 的纯读。写侧留在 Harness 内（工具与工作台），那里 `kb/*` 事件照常入日志。`dsh-kb-mcp` bin 从 `KB_MCP_*` 环境变量启动最小组合（system-prompt / tools / kb-core / server）；外部 MCP 客户端可经既有 `mcp-client` 桥接入。
 
 <!-- BEGIN GENERATED cordis-surface (gen-cordis-catalog.ts) — do not edit between markers -->
 
@@ -315,5 +323,76 @@ freshnessReview(root: string, today?: string): Promise<FreshnessReview>
 async recap(root: string, limit: number): Promise<RecapScanResult>
 ```
 
-Source: [`packages/kb/kb-core/src/index.ts:300`](../../packages/kb/kb-core/src/index.ts)
+Source: [`packages/kb/kb-core/src/index.ts:301`](../../packages/kb/kb-core/src/index.ts)
+
+<a id="ctxkbworkbench--kbworkbenchservice"></a>
+
+### `ctx.kbWorkbench` — `KbWorkbenchService`
+
+`ctx.kbWorkbench`: owns the web governance workbench seam — merged pending-review views, card reads, flywheel metrics, and lifecycle actions over `ctx.kb`. Every Remote method takes the session first; the workspace root derives from `session.header.cwd`.
+
+```ts cordis-catalog
+/**
+ * The merged pending-review view: freshness, the unrecorded recap blind
+ * spots (detection without recording, so the checkpoint queue stays with
+ * the tool and the scheduler), the heat ledger, and the flywheel metrics.
+ * @param session - the workbench session (its cwd is the workspace root).
+ * @param today - the reference date `YYYY-MM-DD` (defaults to today, local).
+ * @returns the overview.
+ */
+@Remote('overview') async overview(session: Session, today?: string): Promise<KbWorkbenchOverview>
+
+/**
+ * Read one full card across the personal and team libraries.
+ * @param session - the workbench session (its cwd is the workspace root).
+ * @param id - the card id.
+ * @returns the card view with its library, tier, path, and derived grade.
+ * @throws when no library holds the id.
+ */
+@Remote('card') async card(session: Session, id: string): Promise<KbWorkbenchCard>
+
+/**
+ * The promotion action: apply the transition and append `kb/promote` to the
+ * workbench session's log, exactly like `kb_promote`.
+ * @param session - the workbench session (its cwd is the workspace root).
+ * @param id - the personal card id.
+ * @param target - the promotion subset (`pending` or `ready`).
+ * @param evidence - optional objective signal.
+ * @returns the card in its new state plus the transition.
+ */
+@Remote('promote') async promote(session: Session, id: string, target: CardStatus, evidence?: string): Promise<{ card: Card from: CardStatus to: CardStatus path: string evidence?: string }>
+
+/**
+ * The archive action: retire a team card and append `kb/promote`, exactly
+ * like `kb_archive`.
+ * @param session - the workbench session (its cwd is the workspace root).
+ * @param id - the team card id.
+ * @returns the card in its new state, the previous state, and the file path.
+ */
+@Remote('archive') async archive(session: Session, id: string): Promise<{ card: Card; from: CardStatus; path: string }>
+
+/**
+ * The revive action: restore an archived team card and append `kb/promote`,
+ * exactly like `kb_revive`.
+ * @param session - the workbench session (its cwd is the workspace root).
+ * @param id - the team card id.
+ * @returns the card in its new state, the previous state, and the file path.
+ */
+@Remote('revive') async revive(session: Session, id: string): Promise<{ card: Card; from: CardStatus; path: string }>
+
+/**
+ * The second-gate action: an approved review transitions a team `pending`
+ * card to `ready` and appends `kb/promote`; a rejected review changes
+ * nothing and appends nothing, exactly like `kb_review`.
+ * @param session - the workbench session (its cwd is the workspace root).
+ * @param id - the team card id.
+ * @param approved - whether the reviewer approved the card.
+ * @returns the card and whether the state changed.
+ */
+@Remote('review') async review(session: Session, id: string, approved: boolean): Promise<{ card: Card; changed: boolean }>
+```
+
+Types: [Session](session.md)
+
+Source: [`packages/kb/kb-web/src/index.ts:99`](../../packages/kb/kb-web/src/index.ts)
 <!-- END GENERATED cordis-surface -->

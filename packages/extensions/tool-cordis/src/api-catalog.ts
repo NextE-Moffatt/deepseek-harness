@@ -922,6 +922,55 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
     ],
   },
   {
+    key: 'kbWorkbench',
+    summary: '`ctx.kbWorkbench`: owns the web governance workbench seam — merged pending-review views, card reads, flywheel metrics, and lifecycle actions over `ctx.kb`.',
+    description: '`ctx.kbWorkbench`: owns the web governance workbench seam — merged pending-review views, card reads, flywheel metrics, and lifecycle actions over `ctx.kb`. Every Remote method takes the session first; the workspace root derives from `session.header.cwd`.',
+    methods: [
+      {
+        signature: 'readonly config: ResolvedKbWebConfig',
+        description: 'The resolved configuration.',
+        parameters: [],
+      },
+      {
+        signature: '@Remote(\'overview\') async overview(session: Session, today?: string): Promise<KbWorkbenchOverview>',
+        description: 'The merged pending-review view: freshness, the unrecorded recap blind spots (detection without recording, so the checkpoint queue stays with the tool and the scheduler), the heat ledger, and the flywheel metrics.',
+        parameters: [{ name: 'session', description: 'the workbench session (its cwd is the workspace root).' }, { name: 'today', description: 'the reference date `YYYY-MM-DD` (defaults to today, local).' }],
+        returns: 'the overview.',
+      },
+      {
+        signature: '@Remote(\'card\') async card(session: Session, id: string): Promise<KbWorkbenchCard>',
+        description: 'Read one full card across the personal and team libraries.',
+        parameters: [{ name: 'session', description: 'the workbench session (its cwd is the workspace root).' }, { name: 'id', description: 'the card id.' }],
+        returns: 'the card view with its library, tier, path, and derived grade.',
+        throws: ['when no library holds the id.'],
+      },
+      {
+        signature: '@Remote(\'promote\') async promote(session: Session, id: string, target: CardStatus, evidence?: string): Promise<{ card: Card from: CardStatus to: CardStatus path: string evidence?: string }>',
+        description: 'The promotion action: apply the transition and append `kb/promote` to the workbench session\'s log, exactly like `kb_promote`.',
+        parameters: [{ name: 'session', description: 'the workbench session (its cwd is the workspace root).' }, { name: 'id', description: 'the personal card id.' }, { name: 'target', description: 'the promotion subset (`pending` or `ready`).' }, { name: 'evidence', description: 'optional objective signal.' }],
+        returns: 'the card in its new state plus the transition.',
+      },
+      {
+        signature: '@Remote(\'archive\') async archive(session: Session, id: string): Promise<{ card: Card; from: CardStatus; path: string }>',
+        description: 'The archive action: retire a team card and append `kb/promote`, exactly like `kb_archive`.',
+        parameters: [{ name: 'session', description: 'the workbench session (its cwd is the workspace root).' }, { name: 'id', description: 'the team card id.' }],
+        returns: 'the card in its new state, the previous state, and the file path.',
+      },
+      {
+        signature: '@Remote(\'revive\') async revive(session: Session, id: string): Promise<{ card: Card; from: CardStatus; path: string }>',
+        description: 'The revive action: restore an archived team card and append `kb/promote`, exactly like `kb_revive`.',
+        parameters: [{ name: 'session', description: 'the workbench session (its cwd is the workspace root).' }, { name: 'id', description: 'the team card id.' }],
+        returns: 'the card in its new state, the previous state, and the file path.',
+      },
+      {
+        signature: '@Remote(\'review\') async review(session: Session, id: string, approved: boolean): Promise<{ card: Card; changed: boolean }>',
+        description: 'The second-gate action: an approved review transitions a team `pending` card to `ready` and appends `kb/promote`; a rejected review changes nothing and appends nothing, exactly like `kb_review`.',
+        parameters: [{ name: 'session', description: 'the workbench session (its cwd is the workspace root).' }, { name: 'id', description: 'the team card id.' }, { name: 'approved', description: 'whether the reviewer approved the card.' }],
+        returns: 'the card and whether the state changed.',
+      },
+    ],
+  },
+  {
     key: 'llm',
     summary: 'The abstract `llm` service: an adapter registry plus a streaming model-call API, interceptable via the `llm/stream` waterfall.',
     description: 'The abstract `llm` service: an adapter registry plus a streaming model-call API, interceptable via the `llm/stream` waterfall.',
@@ -3440,6 +3489,26 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export type JsonValue = null | boolean | number | string | JsonValue[] | {\n    [key: string]: JsonValue;\n};',
   },
   {
+    name: 'KbBlindSpotView',
+    declaration: 'export interface KbBlindSpotView {\n    readonly sessionId: string;\n    readonly at: string;\n    readonly consumed: readonly CardId[];\n    readonly excerpt: string;\n}',
+  },
+  {
+    name: 'KbFlywheelMetrics',
+    declaration: 'export interface KbFlywheelMetrics {\n    readonly injections: number;\n    readonly topHeat: readonly KbTopHeatEntry[];\n    readonly promotions: number;\n    readonly pendingReview: number;\n    readonly blindSpots: number;\n}',
+  },
+  {
+    name: 'KbTopHeatEntry',
+    declaration: 'export interface KbTopHeatEntry {\n    readonly cardId: CardId;\n    readonly title: string;\n    readonly count: number;\n    readonly lastSession: string;\n}',
+  },
+  {
+    name: 'KbWorkbenchCard',
+    declaration: 'export interface KbWorkbenchCard {\n    readonly library: CardLibrary;\n    readonly card: Card;\n    readonly tier: string;\n    readonly path: string;\n    readonly grade: CardGrade;\n}',
+  },
+  {
+    name: 'KbWorkbenchOverview',
+    declaration: 'export interface KbWorkbenchOverview {\n    readonly scanDate: string;\n    readonly freshness: FreshnessReview;\n    readonly blindSpots: readonly KbBlindSpotView[];\n    readonly heat: readonly HeatRow[];\n    readonly metrics: KbFlywheelMetrics;\n}',
+  },
+  {
     name: 'KnobState',
     declaration: 'export interface KnobState {\n    preset: string | null;\n    sandbox: SandboxMode | null;\n    approval: ApprovalPolicy | null;\n}',
   },
@@ -3822,6 +3891,10 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'ResolvedKbConfig',
     declaration: 'export interface ResolvedKbConfig {\n    cardsPath: string;\n    indexPath: string;\n    cardTtlDays: number;\n    teamRepoPath?: string;\n    heatPath: string;\n    freshnessWarningDays: number;\n    freshnessIntervalDays: number;\n    teamWriteApproval: boolean;\n    recapPath: string;\n    recapIntervalDays: number;\n    packs: KnowledgePack[];\n}',
+  },
+  {
+    name: 'ResolvedKbWebConfig',
+    declaration: 'export interface ResolvedKbWebConfig {\n    blindSpotLimit: number;\n    topHeatCount: number;\n}',
   },
   {
     name: 'ResolvedNormalRetryPolicy',

@@ -2,7 +2,7 @@
 
 English | [中文](kb.zh.md)
 
-The personal + team knowledge library: `ctx.kb` owns card write/read, the promotion state machine, FTS5 search with the scan degradation contract, incremental ingest, knowledge-pack injection at session start, the team git library (cards/ + docs/), the dual-gate governance with freshness, the heat telemetry projection, the recap blind-spot scan with its optional scheduler, and the methodology skills, and registers the `kb_write` / `kb_read` / `kb_search` / `kb_promote` / `kb_gate_check` / `kb_team_promote` / `kb_team_read` / `kb_review` / `kb_archive` / `kb_revive` / `kb_team_status` / `kb_team_commit` / `kb_freshness` / `kb_recap` tools. The [milestone-1 Agent Note](../../.agents/notes/implemented/feature/2026-08-18-dsh-kb-package-group-milestone-1.md) owns the package-group decision, the [injection Agent Note](../../.agents/notes/implemented/feature/2026-08-18-dsh-kb-inject.md) owns the knowledge-pack decision, the [milestone-3 Agent Note](../../.agents/notes/implemented/feature/2026-08-19-dsh-kb-milestone-3.md) owns the team-library, governance, and telemetry decisions, and the [milestone-4 Agent Note](../../.agents/notes/implemented/feature/2026-08-19-dsh-kb-milestone-4-recap-and-skills.md) owns the recap and skills decisions; this page records the exact types from [`packages/kb/kb-core/src/types.ts`](../../packages/kb/kb-core/src/types.ts).
+The personal + team knowledge library: `ctx.kb` owns card write/read, the promotion state machine, FTS5 search with the scan degradation contract, incremental ingest, knowledge-pack injection at session start, the team git library (cards/ + docs/), the dual-gate governance with freshness, the heat telemetry projection, the recap blind-spot scan with its optional scheduler, and the methodology skills, and registers the `kb_write` / `kb_read` / `kb_search` / `kb_promote` / `kb_gate_check` / `kb_team_promote` / `kb_team_read` / `kb_review` / `kb_archive` / `kb_revive` / `kb_team_status` / `kb_team_commit` / `kb_freshness` / `kb_recap` tools. The [milestone-1 Agent Note](../../.agents/notes/implemented/feature/2026-08-18-dsh-kb-package-group-milestone-1.md) owns the package-group decision, the [injection Agent Note](../../.agents/notes/implemented/feature/2026-08-18-dsh-kb-inject.md) owns the knowledge-pack decision, the [milestone-3 Agent Note](../../.agents/notes/implemented/feature/2026-08-19-dsh-kb-milestone-3.md) owns the team-library, governance, and telemetry decisions, the [milestone-4 Agent Note](../../.agents/notes/implemented/feature/2026-08-19-dsh-kb-milestone-4-recap-and-skills.md) owns the recap and skills decisions, and the [milestone-5 Agent Note](../../.agents/notes/implemented/feature/2026-08-19-dsh-kb-milestone-5-workbench-and-mcp.md) owns the web workbench and MCP exposure decisions; this page records the exact types from [`packages/kb/kb-core/src/types.ts`](../../packages/kb/kb-core/src/types.ts).
 
 ## Card model
 
@@ -120,6 +120,14 @@ The recap closes the "用即积累" loop: `kb_recap` (and the optional per-sessi
 ## Skills
 
 Three methodology skills register on the skills registry when a skills service is mounted: `kb-card-writing` (the card template and the §4.3 quality checklist, with the structure facts interpolated from the parser constants so they cannot drift), `kb-recap-flow` (the mode-B steps: when to run `kb_recap`, how to judge blind spots, distillation through `kb_write`, then the dual gate), and `kb-pack-building` (the `tags` / `tier` / `library` / `status` / `limit` filter semantics). A context without a skills service logs one loud error and skips.
+
+## Web workbench
+
+The human surface is a web settings section (`kb-workbench`) composed from `@deepseek-ai/dsh-kb-web` (host Remote service `ctx.kbWorkbench` under the `kbWorkbench` namespace), `@deepseek-ai/dsh-client-ui-kb-workbench` (browser half), and kb-core — see the [kb-web overlay example](../../examples/kb-web/cordis.yml). The workbench renders the merged pending-review list (freshness + unrecorded recap blind spots, detected without recording so the checkpoint queue stays with the tool and the scheduler), full card reads, five flywheel metrics projected from `kb/*` events and their persisted files, and the lifecycle actions (promote / archive / revive / review) — thin event-appending wrappers over the existing `ctx.kb` methods that append the same `kb/promote` events the tools append to the workbench session's own log. No second state machine or event stream exists.
+
+## MCP exposure
+
+`@deepseek-ai/dsh-kb-mcp-server` exposes the reference pool to external MCP clients as a read-only stdio server: `search_cards` / `read_card` / `freshness_review` / `heat`, every handler a pure read through `ctx.kb`. The write side stays inside the harness (tools and workbench) where `kb/*` events are logged. The `dsh-kb-mcp` bin boots the minimal composition (system-prompt / tools / kb-core / server) from `KB_MCP_*` environment variables; external MCP clients can connect through the existing `mcp-client` bridge.
 
 <!-- BEGIN GENERATED cordis-surface (gen-cordis-catalog.ts) — do not edit between markers -->
 
@@ -315,5 +323,76 @@ freshnessReview(root: string, today?: string): Promise<FreshnessReview>
 async recap(root: string, limit: number): Promise<RecapScanResult>
 ```
 
-Source: [`packages/kb/kb-core/src/index.ts:300`](../../packages/kb/kb-core/src/index.ts)
+Source: [`packages/kb/kb-core/src/index.ts:301`](../../packages/kb/kb-core/src/index.ts)
+
+<a id="ctxkbworkbench--kbworkbenchservice"></a>
+
+### `ctx.kbWorkbench` — `KbWorkbenchService`
+
+`ctx.kbWorkbench`: owns the web governance workbench seam — merged pending-review views, card reads, flywheel metrics, and lifecycle actions over `ctx.kb`. Every Remote method takes the session first; the workspace root derives from `session.header.cwd`.
+
+```ts cordis-catalog
+/**
+ * The merged pending-review view: freshness, the unrecorded recap blind
+ * spots (detection without recording, so the checkpoint queue stays with
+ * the tool and the scheduler), the heat ledger, and the flywheel metrics.
+ * @param session - the workbench session (its cwd is the workspace root).
+ * @param today - the reference date `YYYY-MM-DD` (defaults to today, local).
+ * @returns the overview.
+ */
+@Remote('overview') async overview(session: Session, today?: string): Promise<KbWorkbenchOverview>
+
+/**
+ * Read one full card across the personal and team libraries.
+ * @param session - the workbench session (its cwd is the workspace root).
+ * @param id - the card id.
+ * @returns the card view with its library, tier, path, and derived grade.
+ * @throws when no library holds the id.
+ */
+@Remote('card') async card(session: Session, id: string): Promise<KbWorkbenchCard>
+
+/**
+ * The promotion action: apply the transition and append `kb/promote` to the
+ * workbench session's log, exactly like `kb_promote`.
+ * @param session - the workbench session (its cwd is the workspace root).
+ * @param id - the personal card id.
+ * @param target - the promotion subset (`pending` or `ready`).
+ * @param evidence - optional objective signal.
+ * @returns the card in its new state plus the transition.
+ */
+@Remote('promote') async promote(session: Session, id: string, target: CardStatus, evidence?: string): Promise<{ card: Card from: CardStatus to: CardStatus path: string evidence?: string }>
+
+/**
+ * The archive action: retire a team card and append `kb/promote`, exactly
+ * like `kb_archive`.
+ * @param session - the workbench session (its cwd is the workspace root).
+ * @param id - the team card id.
+ * @returns the card in its new state, the previous state, and the file path.
+ */
+@Remote('archive') async archive(session: Session, id: string): Promise<{ card: Card; from: CardStatus; path: string }>
+
+/**
+ * The revive action: restore an archived team card and append `kb/promote`,
+ * exactly like `kb_revive`.
+ * @param session - the workbench session (its cwd is the workspace root).
+ * @param id - the team card id.
+ * @returns the card in its new state, the previous state, and the file path.
+ */
+@Remote('revive') async revive(session: Session, id: string): Promise<{ card: Card; from: CardStatus; path: string }>
+
+/**
+ * The second-gate action: an approved review transitions a team `pending`
+ * card to `ready` and appends `kb/promote`; a rejected review changes
+ * nothing and appends nothing, exactly like `kb_review`.
+ * @param session - the workbench session (its cwd is the workspace root).
+ * @param id - the team card id.
+ * @param approved - whether the reviewer approved the card.
+ * @returns the card and whether the state changed.
+ */
+@Remote('review') async review(session: Session, id: string, approved: boolean): Promise<{ card: Card; changed: boolean }>
+```
+
+Types: [Session](session.md)
+
+Source: [`packages/kb/kb-web/src/index.ts:99`](../../packages/kb/kb-web/src/index.ts)
 <!-- END GENERATED cordis-surface -->

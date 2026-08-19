@@ -2995,6 +2995,45 @@ function createFixtureWorld(options: FixtureOptions): FixtureWorld {
     },
   }
 
+  /**
+   * Canned kb governance workbench data for the keyless assembled-snapshot
+   * lane (see apps/web/tests/kb-workbench.snapshot.ts): a deterministic
+   * pending-review list, flywheel metrics, and a draft card detail.
+   */
+  const kbWorkbenchFixture = {
+    overview: {
+      scanDate: '2026-08-19',
+      freshness: {
+        overdue: [{
+          id: 'rule-20260720-001', title: '过期发布流程', library: 'personal',
+          status: 'ready', grade: 'verify', 有效期: '2026-07-20', daysLeft: -30, heat: 3, recommend: 'renew',
+        }],
+        expiringSoon: [{
+          id: 'rule-20260810-002', title: '临期告警处置', library: 'team',
+          status: 'pending', grade: 'pending', 有效期: '2026-08-25', daysLeft: 6, heat: 0, recommend: 'review',
+        }],
+        total: 2,
+      },
+      blindSpots: [{
+        sessionId: sid('fx-blind-spot'), at: '2026-08-18T09:00:00.000Z',
+        consumed: ['rule-20260818-001'], excerpt: '这段会话注入了知识但没有沉淀卡片',
+      }],
+      heat: [],
+      metrics: {
+        injections: 5, promotions: 2, pendingReview: 2, blindSpots: 1,
+        topHeat: [{ cardId: 'rule-20260720-001', title: '过期发布流程', count: 3, lastSession: 'fx-alpha' }],
+      },
+    },
+    card: {
+      library: 'personal', tier: 'P2', path: '/ws/kb/cards/P2/rule-20260818-001.md', grade: 'pending',
+      card: {
+        id: 'rule-20260818-001', type: 'rule', title: '告警处置标准', 库: 'personal', 状态: 'draft',
+        适用条件: '值班收到告警', 核心结论: '先确认影响面，再处置。', 应做: ['确认影响面'], 不应做: ['直接重启'],
+        来源: 'https://example.com/MR-1', 责任人: '本人', 有效期: '2026-08-19', 标签: ['告警'],
+      },
+    },
+  }
+
   const rpc: ClientConnectionRpc = {
     call(channel, endpoint, payload) {
       if (channel !== '/api') {
@@ -3003,9 +3042,14 @@ function createFixtureWorld(options: FixtureOptions): FixtureWorld {
       const args = (payload as {
         args: {
           agentId: SessionId
+          sessionId?: SessionId
           line?: string
           ref?: { id: string; revision: number }
           request?: { objective?: string; maxGoalRounds?: number }
+          id?: string
+          target?: string
+          evidence?: string
+          approved?: boolean
         }
       }).args
       const sessionId = args.agentId
@@ -3021,6 +3065,20 @@ function createFixtureWorld(options: FixtureOptions): FixtureWorld {
         case 'goals/resume': return Promise.resolve(goalRemotes.resume(sessionId, args.ref as FxGoalRef))
         case 'goals/complete': return Promise.resolve(goalRemotes.complete(sessionId, args.ref as FxGoalRef))
         case 'goals/clear': return Promise.resolve(goalRemotes.clear(sessionId, args.ref as FxGoalRef))
+        // The kb governance workbench remote: deterministic canned data for
+        // the keyless assembled-snapshot lane (see kb-workbench.snapshot.ts).
+        case 'kbWorkbench/overview':
+          return Promise.resolve({ ok: true, value: kbWorkbenchFixture.overview })
+        case 'kbWorkbench/card':
+          return Promise.resolve({ ok: true, value: kbWorkbenchFixture.card })
+        case 'kbWorkbench/promote':
+          return Promise.resolve({ ok: true, value: { ...kbWorkbenchFixture.card.card, 状态: 'pending' } })
+        case 'kbWorkbench/archive':
+          return Promise.resolve({ ok: true, value: { ...kbWorkbenchFixture.card.card, 状态: 'archived' } })
+        case 'kbWorkbench/revive':
+          return Promise.resolve({ ok: true, value: { ...kbWorkbenchFixture.card.card, 状态: 'revived' } })
+        case 'kbWorkbench/review':
+          return Promise.resolve({ ok: true, value: { ...kbWorkbenchFixture.card.card, 状态: 'ready', changed: true } })
         default:
           return Promise.reject(new Error(`fixture connection RPC endpoint ${JSON.stringify(endpoint)} is unavailable`))
       }
