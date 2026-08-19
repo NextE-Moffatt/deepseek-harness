@@ -56,9 +56,9 @@ export function resolveRoot(config: KbMcpServerConfig): string {
   return config.root
 }
 
-/** One search hit rendered as a list line. */
+/** One search hit rendered as a list line with its library face. */
 function renderHit(hit: SearchHit): string {
-  return `- ${hit.id}（${hit.status}/${hit.tier}）${hit.title}：${hit.适用条件}`
+  return `- ${hit.id}（${hit.library === 'team' ? '团队' : '个人'}/${hit.status}/${hit.tier}）${hit.title}：${hit.适用条件}`
 }
 
 /** Render one search outcome as the model-facing text block.

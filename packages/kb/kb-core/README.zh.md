@@ -12,7 +12,7 @@
 |---|---|
 | `writeCard(root, input)` | 写入新的个人库草稿卡片；缺省生成 `{type}-YYYYMMDD-{seq}` id，有效期缺省按 `now + cardTtlDays` 计算。 |
 | `readCard(root, id)` | 跨层级读取一张卡片；不存在时抛错。 |
-| `search(root, request)` | FTS5 BM25 检索 + 结构化过滤；索引无法打开时显式降级为 `mode: 'scan'`。 |
+| `search(root, request)` | FTS5 BM25 检索，一个工作区根一个索引（`(library, id)` 键），同时覆盖个人库与团队库 + 结构化过滤；索引无法打开时对两库显式降级为 `mode: 'scan'`。 |
 | `promote(root, id, target, evidence?)` | 校验状态机、重写卡片文件并返回新状态。 |
 | `promoteToTeam(root, id, evidence)` | 第一道门准入：强制执行门禁规则、把个人草稿以 `pending` 移入团队库并删除个人文件。 |
 | `reviewTeam(root, id, approved)` | 第二道门：复核通过时团队 `pending → ready`；不通过则不变更。 |
@@ -135,7 +135,7 @@
 - **复盘通知就是工具与任务输出**——盲点清单经 `kb_recap` 工具结果与定时任务缓冲输出到达模型；web 待办或 IM 通知渠道是 web 工作台里程碑的决策。
 - **盲点按会话长度只浮出一次**——已列出的盲点被记录，直到该会话日志增长才重新列出；历史清单从 `kb/recap` 事件重建。
 - **复盘只扫当前进程的实时与持久化会话**——可选 `sessionPersistence` 服务把扫描扩展到持久化日志；harness 之外的跨进程日志存储不扫描。
-- **向量/RAG 检索后置**——FTS5 + 结构化过滤是里程碑 1 契约；团队卡片约 500 条后由 kb-search 接缝吸收向量后端（设计 §4.4）。
+- **向量/RAG 检索后置**——FTS5 + 结构化过滤是里程碑 6 契约；提供商槽位是 `KbService.search` 背后的 `CardIndex`-shaped 实现，降级契约是它的不变式，触发条件是团队卡 >500 或长文语义检索（设计 §4.4）。
 - **Web 工作台与 MCP 暴露在兄弟包中** —— 治理工作台（`@deepseek-ai/dsh-kb-web` + `@deepseek-ai/dsh-client-ui-kb-workbench`）与只读 MCP Server（`@deepseek-ai/dsh-kb-mcp-server`）组合 kb-core；两者均为可选，不在出厂 bundle 中。
 - **检索每次同步重新解析全库**——每次 `search` 都重读并重解析所有卡片文件；索引写入按 mtime/size 差异更新，但解析成本与库大小线性。
 - **原始笔记采集推迟**——`importDir` 只导入卡片形文件并计数跳过原始文件；笔记转卡片归复盘/蒸馏里程碑，`ctx.jobs` 调度等待真实连接器。

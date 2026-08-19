@@ -333,7 +333,7 @@ export function registerKbTools(ctx: Context, kb: KbService): void {
 
   ctx.tools.register(defineTool({
     name: 'kb_search',
-    description: '检索个人知识库：FTS5 全文（BM25）命中的草稿卡片，可按类型/状态/层级/标签过滤。结果真实来自卡片文件；索引不可用时明确降级为全库扫描（mode: scan）。',
+    description: '检索个人 + 团队知识库：FTS5 全文（BM25）命中的卡片，可按类型/状态/层级/标签过滤（层级过滤只适用于个人库，团队卡不参与）。结果真实来自卡片文件；索引不可用时明确降级为全库扫描（mode: scan）。',
     parameters: {
       query: { type: 'string', required: true, description: '检索词（AND 连接，中文/英文均可）' },
       type: {
@@ -364,6 +364,7 @@ export function registerKbTools(ctx: Context, kb: KbService): void {
                 title: { type: 'string', required: true },
                 type: { type: 'string', required: true },
                 status: { type: 'string', required: true },
+                library: { type: 'string', required: true },
                 tier: { type: 'string', required: true },
                 path: { type: 'string', required: true },
                 适用条件: { type: 'string', required: true },
@@ -377,7 +378,7 @@ export function registerKbTools(ctx: Context, kb: KbService): void {
       render: (_args, value) => [{
         type: 'text',
         text: `检索（${value.mode}）命中 ${value.total} 条${value.note === undefined ? '' : `；${value.note}`}\n`
-          + value.hits.map(hit => `- [${hit.score.toFixed(2)}] ${hit.id}（${hit.status}/${hit.tier}）${hit.title}`).join('\n'),
+          + value.hits.map(hit => `- [${hit.score.toFixed(2)}] ${hit.id}（${hit.library === 'team' ? '团队' : '个人'}/${hit.status}/${hit.tier}）${hit.title}`).join('\n'),
       }],
       presentationMeta: (_args, value) => value,
     },

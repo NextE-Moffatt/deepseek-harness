@@ -61,7 +61,7 @@ type CardGrade = 'verified' | 'pending' | 'verify'
 
 ## Search contract
 
-`CardIndex` 在 `kb/.kb-index.sqlite`（`indexPath` 配置）上按库根目录运行 FTS5 `unicode61`（BM25），另配普通 `cards` 表做结构化过滤（type / 状态 / tier / tags）。中日韩/假名连续段在索引与查询两侧都按字切分，子串检索无需分词词典。降级契约显式化：索引无法打开时 `search` 返回确定性扫描模式结果（`mode: 'scan'`，同一套过滤 + 说明），绝不编造答案。
+`CardIndex` 在每个工作区根的一个数据库（`kb/.kb-index.sqlite`，`indexPath` 配置）上运行 FTS5 `unicode61`（BM25），在 `(library, id)` 复合键下同时索引个人库与团队库，另配普通 `cards` 表做结构化过滤（type / 状态 / tier / tags）。中日韩/假名连续段在索引与查询两侧都按字切分，子串检索无需分词词典。团队卡没有层级；其命中携带团队库标记（`tier: 'team'`），层级过滤会排除它们。降级契约显式化：索引无法打开时 `search` 对两库的已解析文件返回确定性扫描模式结果（`mode: 'scan'`，同一套过滤 + 说明），绝不编造答案。向量/RAG 后端延后，带触发条件（团队卡 >500 或长文语义检索）；提供商槽位是 `KbService.search` 背后的 `CardIndex`-shaped 实现，降级契约是它的不变式。
 
 ## Session events
 
@@ -167,9 +167,11 @@ async writeCard(root: string, input: WriteCardInput): Promise<CardWriteResult>
 async readCard(root: string, id: CardId): Promise<CardFileInfo>
 
 /**
- * Search one library: FTS5 BM25 with structured filters when the index is
- * available, otherwise a deterministic full-library scan with an explicit
- * `mode: 'scan'` note. Results are always real card files.
+ * Search the personal and team libraries: one FTS5 BM25 query over the
+ * unified index when it is available, otherwise a deterministic
+ * full-library scan with an explicit `mode: 'scan'` note. The team library
+ * joins when `teamRepoPath` is configured; a configured-but-broken team
+ * repository fails loud. Results are always real card files.
  * @param root - the session workspace root.
  * @param request - the retrieval request.
  * @returns the retrieval outcome with its mode.

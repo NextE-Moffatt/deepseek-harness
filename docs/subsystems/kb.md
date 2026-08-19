@@ -61,7 +61,7 @@ The team library is a git work tree at `KbConfig.teamRepoPath` (absolute, or rel
 
 ## Search contract
 
-`CardIndex` runs FTS5 `unicode61` (BM25) over a per-library-root database at `kb/.kb-index.sqlite` (`indexPath` config), with a regular `cards` table for structured filters (type / 状态 / tier / tags). CJK/kana runs are char-split in both the index and the query, so substring search works without a segmentation dictionary. The degradation contract is explicit: when the index cannot open, `search` returns deterministic scan-mode results (`mode: 'scan'`) over the same filters with a note — never fabricated answers.
+`CardIndex` runs FTS5 `unicode61` (BM25) over one database per workspace root at `kb/.kb-index.sqlite` (`indexPath` config), indexing the personal and team libraries together under a `(library, id)` key, with a regular `cards` table for structured filters (type / 状态 / tier / tags). CJK/kana runs are char-split in both the index and the query, so substring search works without a segmentation dictionary. Team cards have no tier; their hits carry the team-library marker (`tier: 'team'`) and the tier filter excludes them. The degradation contract is explicit: when the index cannot open, `search` returns deterministic scan-mode results (`mode: 'scan'`) over both libraries' parsed files with a note — never fabricated answers. The vector/RAG backend is deferred with trigger conditions (past ~500 team cards or long-form semantic retrieval); the provider slot is a `CardIndex`-shaped implementation behind `KbService.search` with the degradation contract as its invariant.
 
 ## Session events
 
@@ -167,9 +167,11 @@ async writeCard(root: string, input: WriteCardInput): Promise<CardWriteResult>
 async readCard(root: string, id: CardId): Promise<CardFileInfo>
 
 /**
- * Search one library: FTS5 BM25 with structured filters when the index is
- * available, otherwise a deterministic full-library scan with an explicit
- * `mode: 'scan'` note. Results are always real card files.
+ * Search the personal and team libraries: one FTS5 BM25 query over the
+ * unified index when it is available, otherwise a deterministic
+ * full-library scan with an explicit `mode: 'scan'` note. The team library
+ * joins when `teamRepoPath` is configured; a configured-but-broken team
+ * repository fails loud. Results are always real card files.
  * @param root - the session workspace root.
  * @param request - the retrieval request.
  * @returns the retrieval outcome with its mode.

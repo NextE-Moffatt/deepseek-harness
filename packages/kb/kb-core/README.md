@@ -12,7 +12,7 @@ The personal + team knowledge base: Markdown + YAML knowledge cards in the sessi
 |---|---|
 | `writeCard(root, input)` | Write a new personal-library draft card; generates `{type}-YYYYMMDD-{seq}` ids when omitted and defaults 有效期 to `now + cardTtlDays`. |
 | `readCard(root, id)` | Read one card across all tiers; throws when no tier holds the id. |
-| `search(root, request)` | FTS5 BM25 retrieval with structured filters, or an explicit `mode: 'scan'` degradation when the index cannot open. |
+| `search(root, request)` | FTS5 BM25 retrieval over the personal and team libraries together (one index per workspace root, `(library, id)` keyed), with structured filters, or an explicit `mode: 'scan'` degradation across both libraries when the index cannot open. |
 | `promote(root, id, target, evidence?)` | Assert the state machine, rewrite the card file, and return the new state. |
 | `promoteToTeam(root, id, evidence)` | The first gate's admission: enforce the gate rule, move the personal draft into the team library as `pending`, and remove the personal file. |
 | `reviewTeam(root, id, approved)` | The second gate: an approved review transitions team `pending` → `ready`; a rejected review changes nothing. |
@@ -135,7 +135,7 @@ Prefix-stable while the injected packs are unchanged; the section follows the re
 - **Recap notifications are the tool and job outputs** — the blind-spot list reaches the model through the `kb_recap` tool result and the scheduled job's buffered output; web-todo or IM notification channels are the web-workbench milestone's decision.
 - **Blind spots are surfaced once per session length** — a listed blind spot is recorded and not re-listed until its session's log grows; the historical lists rebuild from the `kb/recap` events.
 - **Recap scans live and persisted sessions of the current process** — the optional `sessionPersistence` service extends the scan to persisted logs; cross-process log stores outside the harness are not scanned.
-- **Vector/RAG retrieval is deferred** — FTS5 + structured filters are the milestone-1 contract; the kb-search seam absorbs a vector backend past ~500 team cards (design §4.4).
+- **Vector/RAG retrieval is deferred** — FTS5 + structured filters are the milestone-6 contract; the provider slot is a `CardIndex`-shaped implementation behind `KbService.search` with the degradation contract as its invariant, triggered past ~500 team cards or long-form semantic retrieval (design §4.4).
 - **Web workbench and MCP exposure live in sibling packages** — the governance workbench (`@deepseek-ai/dsh-kb-web` + `@deepseek-ai/dsh-client-ui-kb-workbench`) and the read-only MCP server (`@deepseek-ai/dsh-kb-mcp-server`) compose kb-core; both are opt-in, outside the shipped bundles.
 - **Search reparses the library per sync** — each `search` re-reads and re-parses every card file; the index write is diffed by mtime/size, but parse cost is linear in library size.
 - **Raw-note ingestion is deferred** — `importDir` imports card-shaped files and counts raw files as skipped; wrapping notes into cards is the recap/distill milestone's job, and scheduling through `ctx.jobs` awaits a real connector.

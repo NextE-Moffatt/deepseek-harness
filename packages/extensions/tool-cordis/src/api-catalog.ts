@@ -819,7 +819,7 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
       },
       {
         signature: 'async search(root: string, request: SearchRequest): Promise<SearchOutcome>',
-        description: 'Search one library: FTS5 BM25 with structured filters when the index is available, otherwise a deterministic full-library scan with an explicit `mode: \'scan\'` note. Results are always real card files.',
+        description: 'Search the personal and team libraries: one FTS5 BM25 query over the unified index when it is available, otherwise a deterministic full-library scan with an explicit `mode: \'scan\'` note. The team library joins when `teamRepoPath` is configured; a configured-but-broken team repository fails loud. Results are always real card files.',
         parameters: [{ name: 'root', description: 'the session workspace root.' }, { name: 'request', description: 'the retrieval request.' }],
         returns: 'the retrieval outcome with its mode.',
       },
@@ -4002,7 +4002,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'SearchHit',
-    declaration: 'export interface SearchHit {\n    id: CardId;\n    title: string;\n    type: CardType;\n    status: CardStatus;\n    tier: CardTier;\n    path: string;\n    适用条件: string;\n    标签: string[];\n    score: number;\n}',
+    declaration: 'export interface SearchHit {\n    id: CardId;\n    title: string;\n    type: CardType;\n    status: CardStatus;\n    library: CardLibrary;\n    tier: CardTier | \'team\';\n    path: string;\n    适用条件: string;\n    标签: string[];\n    score: number;\n}',
   },
   {
     name: 'SearchLineMatch',

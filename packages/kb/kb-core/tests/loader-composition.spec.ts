@@ -30,16 +30,18 @@ const execFileAsync = promisify(execFile)
 
 let root: string | undefined
 let workspace: string | undefined
+let teamRepo: string | undefined
 let context: Context | undefined
 
 afterEach(async () => {
   await context?.fiber.dispose()
   context = undefined
-  for (const dir of [root, workspace]) {
+  for (const dir of [root, workspace, teamRepo]) {
     if (dir !== undefined) await rm(dir, { recursive: true, force: true })
   }
   root = undefined
   workspace = undefined
+  teamRepo = undefined
 })
 
 /** A fake parent Agent backed by a real store-entered session whose cwd is the workspace. */
@@ -175,6 +177,70 @@ describe('kb-core real composition', () => {
       event.type === 'kb/promote' && event.data.id === cardId && event.data.from === 'draft' && event.data.to === 'pending',
     )).toBe(true)
     expect(resultText(write)).toContain(cardId)
+  })
+
+  it('kb_search returns personal and team hits from the unified index, tagged by library', async () => {
+    teamRepo = await mkdtemp(join(tmpdir(), 'dsh-kb-team-'))
+    await execFileAsync('git', ['init', '-q', teamRepo])
+    const ctx = await boot([`    teamRepoPath: ${teamRepo}`])
+    const caller = agent(ctx, workspace)
+    // A personal draft card, searchable through kb_write.
+    const written = await ctx.tools.execute({
+      signal: new AbortController().signal,
+      callId: CallId('unified-write'),
+      name: 'kb_write',
+      arguments: {
+        tier: 'P2', type: 'rule', title: '个人告警处置', 适用条件: '值班收到告警',
+        核心结论: '先确认影响面。', 应做: ['确认影响面'], 不应做: ['直接重启'],
+        责任人: '张三', 标签: ['告警'],
+      },
+      agent: caller,
+    })
+    const personalId = (written.value as { id: string }).id
+    // A real team card file in the shared git work tree (the team library's
+    // list face reads cards/*.md; the search index now covers it), plus an
+    // unparseable file that the search skips with a debug log.
+    await mkdir(join(teamRepo, 'cards'), { recursive: true })
+    await writeFile(join(teamRepo, 'cards', 'broken.md'), 'not a card\n', 'utf8')
+    await writeFile(join(teamRepo, 'cards', 'rule-20260801-009.md'), [
+      '---',
+      'id: rule-20260801-009',
+      'type: rule',
+      'title: 团队告警处置',
+      '库: team',
+      '状态: ready',
+      '适用条件: 团队值班收到告警',
+      '来源: https://example.com/MR-9',
+      '责任人: 团队',
+      '有效期: 2099-01-01',
+      '标签:',
+      '  - 告警',
+      '---',
+      '',
+      '## 核心结论',
+      '',
+      '按团队流程先确认影响面。',
+      '',
+    ].join('\n'))
+
+    const search = await ctx.tools.execute({
+      signal: new AbortController().signal,
+      callId: CallId('unified-search'),
+      name: 'kb_search',
+      arguments: { query: '告警' },
+      agent: caller,
+    })
+    expect(search.isError).toBe(false)
+    if (search.isError) throw new Error('kb_search failed in composition')
+    const found = search.value as { mode: string; total: number; hits: { id: string; library: string; tier: string }[] }
+    expect(found.mode).toBe('fts')
+    expect(found.total).toBe(2)
+    expect(found.hits.map(hit => [hit.library, hit.id]).sort()).toEqual([
+      ['personal', personalId],
+      ['team', 'rule-20260801-009'],
+    ])
+    const teamHit = found.hits.find(hit => hit.library === 'team')
+    expect(teamHit).toMatchObject({ id: 'rule-20260801-009', tier: 'team' })
   })
 
   it('mounts with an explicit config block from cordis.yml', async () => {

@@ -23,7 +23,7 @@ import { assertTransition } from './lifecycle.ts'
 import { resolvePacks } from './pack.ts'
 import { runRecapScan, registerRecapSchedule, type RecapScanResult } from './recap.ts'
 import { registerRecapTools } from './recap-tools.ts'
-import { CardIndex, openCardIndex, scanSearch, type SearchOutcome, type SearchRequest } from './search.ts'
+import { CardIndex, openCardIndex, scanSearch, type SearchOutcome, type SearchRequest, type SearchableCard } from './search.ts'
 import { registerKbSkills } from './skills.ts'
 import { PersonalCardStore, type CardFileInfo } from './store.ts'
 import { GitRunner } from './gitops.ts'
@@ -409,26 +409,41 @@ export class KbService extends Service {
   }
 
   /**
-   * Search one library: FTS5 BM25 with structured filters when the index is
-   * available, otherwise a deterministic full-library scan with an explicit
-   * `mode: 'scan'` note. Results are always real card files.
+   * Search the personal and team libraries: one FTS5 BM25 query over the
+   * unified index when it is available, otherwise a deterministic
+   * full-library scan with an explicit `mode: 'scan'` note. The team library
+   * joins when `teamRepoPath` is configured; a configured-but-broken team
+   * repository fails loud. Results are always real card files.
    * @param root - the session workspace root.
    * @param request - the retrieval request.
    * @returns the retrieval outcome with its mode.
    */
   async search(root: string, request: SearchRequest): Promise<SearchOutcome> {
+    const entries: SearchableCard[] = []
     const listed = await this.store(root).list()
     for (const failure of listed.failures) {
       this.ctx.logger.debug('dsh-kb-core: ignoring unparseable card file %s: %s', failure.path, failure.message)
     }
+    for (const card of listed.cards) {
+      entries.push({ library: 'personal', ...card })
+    }
+    if (this.config.teamRepoPath !== undefined) {
+      const team = await this.teamStore(root).list()
+      for (const failure of team.failures) {
+        this.ctx.logger.debug('dsh-kb-core: ignoring unparseable team card file %s: %s', failure.path, failure.message)
+      }
+      for (const card of team.cards) {
+        entries.push({ library: 'team', card: card.card, path: card.path, mtime: card.mtime, size: card.size })
+      }
+    }
     try {
       const index = await this.indexFor(root)
-      index.sync(listed.cards)
+      index.sync(entries)
       const found = index.search(request)
       return { mode: 'fts', total: found.total, hits: found.hits }
     } catch (error) {
       this.ctx.logger.warn('dsh-kb-core: FTS5 index unavailable for %s, degrading to scan: %o', root, error)
-      const hits = scanSearch(listed.cards, request)
+      const hits = scanSearch(entries, request)
       return {
         mode: 'scan',
         total: hits.length,

@@ -106,13 +106,13 @@ describe('render functions', () => {
     const text = renderSearchOutcome({
       mode: 'scan', total: 2,
       hits: [
-        { id: CARD, title: '规则', type: 'rule', status: 'ready', tier: 'P2', path: '/x', 适用条件: '任何会话', 标签: ['kb'], score: 0 },
-        { id: 'case-1' as CardId, title: '案例', type: 'case', status: 'pending', tier: 'P1', path: '/y', 适用条件: '值班', 标签: [], score: 0 },
+        { id: CARD, title: '规则', type: 'rule', status: 'ready', tier: 'P2', library: 'personal', path: '/x', 适用条件: '任何会话', 标签: ['kb'], score: 0 },
+        { id: 'case-1' as CardId, title: '案例', type: 'case', status: 'pending', tier: 'P1', library: 'personal', path: '/y', 适用条件: '值班', 标签: [], score: 0 },
       ],
       note: 'FTS5 index unavailable; results are a deterministic full-library scan',
     })
     expect(text).toContain('知识库检索（scan）：命中 2 张卡片')
-    expect(text).toContain('- rule-20260818-001（ready/P2）规则：任何会话')
+    expect(text).toContain('- rule-20260818-001（个人/ready/P2）规则：任何会话')
     expect(text).toContain('FTS5 index unavailable')
   })
 

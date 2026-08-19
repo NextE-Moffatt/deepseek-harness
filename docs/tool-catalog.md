@@ -340,7 +340,7 @@ Source: [`packages/kb/kb-core/src/index.ts`](../packages/kb/kb-core/src/index.ts
 
 ### `kb_search`
 
-检索个人知识库：FTS5 全文（BM25）命中的草稿卡片，可按类型/状态/层级/标签过滤。结果真实来自卡片文件；索引不可用时明确降级为全库扫描（mode: scan）。
+检索个人 + 团队知识库：FTS5 全文（BM25）命中的卡片，可按类型/状态/层级/标签过滤（层级过滤只适用于个人库，团队卡不参与）。结果真实来自卡片文件；索引不可用时明确降级为全库扫描（mode: scan）。
 
 ```json
 {
