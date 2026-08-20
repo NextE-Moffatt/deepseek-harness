@@ -49,7 +49,7 @@ function detailShape(): string {
   // container, because other plugin chrome (settings models, settings) also
   // carries 'actions' groups later in the document.
   const fields = [...document.querySelectorAll('dl')].pop()
-  const actions = fields?.parentElement === undefined
+  const actions = fields?.parentElement == null
     ? undefined
     : byClass(fields.parentElement, 'actions').pop()
   const actionText = actions === undefined
