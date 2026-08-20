@@ -504,5 +504,5 @@ Source: [`packages/kb/kb-core/src/index.ts:338`](../../packages/kb/kb-core/src/i
 
 Types: [Session](session.md)
 
-Source: [`packages/kb/kb-web/src/index.ts:100`](../../packages/kb/kb-web/src/index.ts)
+Source: [`packages/kb/kb-web/src/index.ts:101`](../../packages/kb/kb-web/src/index.ts)
 <!-- END GENERATED cordis-surface -->

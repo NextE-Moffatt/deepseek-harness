@@ -670,7 +670,10 @@ describe('team docs block', () => {
   })
 
   it('surfaces a list failure in the alert with a retry that reloads', async () => {
-    const listDocs = vi.fn(async () => ({ ok: false as const, error: { code: 'team-unconfigured', message: '团队库未配置', details: {} } }))
+    const listDocs = vi.fn<Injected['listDocs']>(async () => ({
+      ok: false as const,
+      error: { code: 'team-unconfigured', message: '团队库未配置', details: {} },
+    }))
     const face = injected({ listDocs })
     renderSection(face)
     expect(await screen.findByRole('alert')).toBeDefined()

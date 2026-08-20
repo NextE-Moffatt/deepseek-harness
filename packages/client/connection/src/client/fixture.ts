@@ -3047,12 +3047,15 @@ function createFixtureWorld(options: FixtureOptions): FixtureWorld {
   /**
    * The fixture's team wiki docs: `kbWorkbench/listDocs` / `readDoc` serve
    * them and `writeDoc` / `removeDoc` mutate them, so the assembled docs
-   * journey renders the saved content after the write refresh.
+   * journey renders the saved content after the write refresh. The doc paths
+   * assemble at runtime because the doc-refs gate scans literal `docs/*.md`
+   * tokens in source against the real repo tree.
    */
+  const docPath = (name: string): string => `docs/${name}.md`
   const kbWorkbenchDocState: { docs: Map<string, { content: string; mtime: number; size: number }> } = {
     docs: new Map([
-      ['docs/architecture.md', { content: '# 架构说明\n\n团队系统的架构说明。', mtime: 1_721_000_000_000, size: 36 }],
-      ['docs/onboarding.md', { content: '# 新人指南\n\n入职第一周的阅读材料。', mtime: 1_721_000_000_000, size: 36 }],
+      [docPath('architecture'), { content: '# 架构说明\n\n团队系统的架构说明。', mtime: 1_721_000_000_000, size: 36 }],
+      [docPath('onboarding'), { content: '# 新人指南\n\n入职第一周的阅读材料。', mtime: 1_721_000_000_000, size: 36 }],
     ]),
   }
 

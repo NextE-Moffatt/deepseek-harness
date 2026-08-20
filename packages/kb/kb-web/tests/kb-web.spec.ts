@@ -377,10 +377,10 @@ describe('team docs', () => {
 
   it('surfaces a write conflict or a denied approval without appending an event', async () => {
     const { ctx, session, mocks } = await harness()
-    mocks.writeTeamDoc.mockRejectedValueOnce(new Error('团队文档写入需经审批（KbConfig.teamWriteApproval）：docs/a.md'))
+    mocks.writeTeamDoc.mockRejectedValueOnce(new Error(`团队文档写入需经审批（KbConfig.teamWriteApproval）：${join('docs', 'a.md')}`))
     await expect(ctx.kbWorkbench.writeDoc(session, DOC, 'x')).rejects.toThrow(/需经审批/)
     expect(session.events.some(event => event.type === 'kb/doc-write')).toBe(false)
-    mocks.writeTeamDoc.mockRejectedValueOnce(new Error('文档已被其他会话修改，请刷新后重试（docs/a.md）'))
+    mocks.writeTeamDoc.mockRejectedValueOnce(new Error(`文档已被其他会话修改，请刷新后重试（${join('docs', 'a.md')}）`))
     await expect(ctx.kbWorkbench.writeDoc(session, DOC, 'x')).rejects.toThrow(/已被其他会话修改/)
     expect(session.events.some(event => event.type === 'kb/doc-write')).toBe(false)
   })

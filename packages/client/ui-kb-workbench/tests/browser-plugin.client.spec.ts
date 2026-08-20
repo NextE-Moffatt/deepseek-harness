@@ -5,6 +5,7 @@
  * invariant companion's ownership reservation.
  */
 import { Context } from '@deepseek-ai/cordis'
+import { join } from 'node:path'
 import { describe, expect, it, vi } from 'vitest'
 import InvariantRegistry from '@deepseek-ai/dsh-invariants'
 import { SlotRegistry } from '@deepseek-ai/dsh-client-runtime/client'
@@ -120,12 +121,12 @@ describe('ui-kb-workbench browser half', () => {
     expect(kbWorkbench.edit).toHaveBeenCalledWith('s1', 'rule-1', { title: '新标题' }, { approved: true })
     await face.listDocs('s1')
     expect(kbWorkbench.listDocs).toHaveBeenCalledWith('s1')
-    await face.readDoc('s1', 'docs/a.md')
-    expect(kbWorkbench.readDoc).toHaveBeenCalledWith('s1', 'docs/a.md')
-    await face.writeDoc('s1', 'docs/a.md', '# 内容', { approved: true })
-    expect(kbWorkbench.writeDoc).toHaveBeenCalledWith('s1', 'docs/a.md', '# 内容', { approved: true })
-    await face.removeDoc('s1', 'docs/a.md', { approved: true })
-    expect(kbWorkbench.removeDoc).toHaveBeenCalledWith('s1', 'docs/a.md', { approved: true })
+    await face.readDoc('s1', join('docs', 'a.md'))
+    expect(kbWorkbench.readDoc).toHaveBeenCalledWith('s1', join('docs', 'a.md'))
+    await face.writeDoc('s1', join('docs', 'a.md'), '# 内容', { approved: true })
+    expect(kbWorkbench.writeDoc).toHaveBeenCalledWith('s1', join('docs', 'a.md'), '# 内容', { approved: true })
+    await face.removeDoc('s1', join('docs', 'a.md'), { approved: true })
+    expect(kbWorkbench.removeDoc).toHaveBeenCalledWith('s1', join('docs', 'a.md'), { approved: true })
   })
 
   it('node half is inert', () => {

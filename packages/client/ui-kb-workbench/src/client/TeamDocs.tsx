@@ -11,7 +11,6 @@
 import { useCallback, useEffect, useState } from 'react'
 import type { ReactNode } from 'react'
 import type { SessionId } from '@deepseek-ai/dsh-client-runtime/client'
-import type { GlobalStandardProps } from '@deepseek-ai/dsh-client-ui-slots'
 import type { RemoteResult } from '@deepseek-ai/dsh-typert-protocol'
 import type { KbWorkbenchDoc, KbWorkbenchDocOptions } from '@deepseek-ai/dsh-kb-web/client'
 import type { KbWorkbenchKey } from './locales.ts'
@@ -41,10 +40,12 @@ export interface TeamDocsInjected {
 }
 
 /** Props delivered by the workbench section: the active session seat plus the docs face. */
-export type TeamDocsProps = GlobalStandardProps & {
+export type TeamDocsProps = {
   /** The workbench session whose workspace serves the team library. */
   sessionId: SessionId
-} & Partial<TeamDocsInjected>
+} & {
+  [K in keyof TeamDocsInjected]?: TeamDocsInjected[K] | undefined
+}
 
 /**
  * The team wiki docs block body.

@@ -424,7 +424,7 @@ export function WorkbenchSection(props: WorkbenchSectionProps): ReactNode {
           </ul>
 
           <TeamDocs
-            sessionId={activeSessionId}
+            sessionId={actionSession}
             t={t}
             listDocs={listDocs}
             readDoc={readDoc}

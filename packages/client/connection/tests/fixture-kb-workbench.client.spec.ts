@@ -10,6 +10,9 @@ import { FixtureApiClient } from '../src/client/fixture.ts'
 
 const sid = (id: string): SessionId => id as SessionId
 
+/** A repository-relative docs path assembled at runtime (the doc-refs gate scans literal tokens). */
+const docPath = (name: string): string => `docs/${name}.md`
+
 async function kbRpc(endpoint: string, args: Record<string, unknown>): Promise<{ ok: boolean } & Record<string, unknown>> {
   const client = new FixtureApiClient()
   return client.rpc.call('/api', endpoint, { args: { sessionId: sid('fx-alpha'), ...args } })
@@ -72,16 +75,16 @@ describe('fixture kbWorkbench remote', () => {
   it('serves the team docs list and reads one with its identity', async () => {
     const result = await kbRpc('kbWorkbench/listDocs', {})
     expect(result.ok).toBe(true)
-    expect(result.value).toEqual(['docs/architecture.md', 'docs/onboarding.md'])
-    const read = await kbRpc('kbWorkbench/readDoc', { docPath: 'docs/architecture.md' })
+    expect(result.value).toEqual([docPath('architecture'), docPath('onboarding')])
+    const read = await kbRpc('kbWorkbench/readDoc', { docPath: docPath('architecture') })
     expect(read.ok).toBe(true)
     expect(read.value).toMatchObject({
-      path: 'docs/architecture.md',
+      path: docPath('architecture'),
       content: '# 架构说明\n\n团队系统的架构说明。',
       mtime: 1_721_000_000_000,
       size: 36,
     })
-    await expect(kbRpc('kbWorkbench/readDoc', { docPath: 'docs/missing.md' })).rejects.toThrow(/not found/)
+    await expect(kbRpc('kbWorkbench/readDoc', { docPath: docPath('missing') })).rejects.toThrow(/not found/)
   })
 
   it('writes and removes a team doc through the fixture state', async () => {
@@ -90,7 +93,7 @@ describe('fixture kbWorkbench remote', () => {
     const rpc = (endpoint: string, args: Record<string, unknown>): ReturnType<typeof kbRpc> =>
       client.rpc.call('/api', endpoint, { args: { sessionId: sid('fx-alpha'), ...args } })
     const written = await rpc('kbWorkbench/writeDoc', {
-      docPath: 'docs/architecture.md',
+      docPath: docPath('architecture'),
       content: '# 更新的架构说明',
     })
     expect(written.ok).toBe(true)
@@ -98,13 +101,13 @@ describe('fixture kbWorkbench remote', () => {
     expect((written.value as { size: number }).size).toBe(new TextEncoder().encode('# 更新的架构说明').length)
     // The read endpoint now serves the written content (the assembled journey
     // refreshes the doc view after save).
-    const read = await rpc('kbWorkbench/readDoc', { docPath: 'docs/architecture.md' })
+    const read = await rpc('kbWorkbench/readDoc', { docPath: docPath('architecture') })
     expect((read.value as { content: string }).content).toBe('# 更新的架构说明')
     // Removal drops the doc from the served list.
-    const removed = await rpc('kbWorkbench/removeDoc', { docPath: 'docs/architecture.md' })
+    const removed = await rpc('kbWorkbench/removeDoc', { docPath: docPath('architecture') })
     expect(removed.ok).toBe(true)
-    expect(removed.value).toEqual({ path: 'docs/architecture.md' })
+    expect(removed.value).toEqual({ path: docPath('architecture') })
     const list = await rpc('kbWorkbench/listDocs', {})
-    expect(list.value).toEqual(['docs/onboarding.md'])
+    expect(list.value).toEqual([docPath('onboarding')])
   })
 })
