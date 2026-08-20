@@ -2995,6 +2995,70 @@ function createFixtureWorld(options: FixtureOptions): FixtureWorld {
     },
   }
 
+  /**
+   * Canned kb governance workbench data for the keyless assembled-snapshot
+   * lane (see apps/web/tests/kb-workbench.snapshot.ts): a deterministic
+   * pending-review list, flywheel metrics, and a draft card detail.
+   */
+  const kbWorkbenchFixture = {
+    overview: {
+      scanDate: '2026-08-19',
+      freshness: {
+        overdue: [{
+          id: 'rule-20260720-001', title: '过期发布流程', library: 'personal',
+          status: 'ready', grade: 'verify', 有效期: '2026-07-20', daysLeft: -30, heat: 3, recommend: 'renew',
+        }],
+        expiringSoon: [{
+          id: 'rule-20260810-002', title: '临期告警处置', library: 'team',
+          status: 'pending', grade: 'pending', 有效期: '2026-08-25', daysLeft: 6, heat: 0, recommend: 'review',
+        }],
+        total: 2,
+      },
+      blindSpots: [{
+        sessionId: sid('fx-blind-spot'), at: '2026-08-18T09:00:00.000Z',
+        consumed: ['rule-20260818-001'], excerpt: '这段会话注入了知识但没有沉淀卡片',
+      }],
+      heat: [],
+      metrics: {
+        injections: 5, promotions: 2, pendingReview: 2, blindSpots: 1,
+        topHeat: [{ cardId: 'rule-20260720-001', title: '过期发布流程', count: 3, lastSession: 'fx-alpha' }],
+      },
+    },
+    card: {
+      library: 'personal', tier: 'P2', path: '/ws/kb/cards/P2/rule-20260818-001.md', grade: 'pending',
+      mtime: 1_721_000_000_000, size: 512,
+      card: {
+        id: 'rule-20260818-001', type: 'rule', title: '告警处置标准', 库: 'personal', 状态: 'draft',
+        适用条件: '值班收到告警', 核心结论: '先确认影响面，再处置。', 应做: ['确认影响面'], 不应做: ['直接重启'],
+        来源: 'https://example.com/MR-1', 责任人: '本人', 有效期: '2026-08-19', 标签: ['告警'],
+      },
+    },
+  }
+
+  /**
+   * The fixture's current card view: `kbWorkbench/card` serves it and
+   * `kbWorkbench/edit` mutates it, so the assembled edit journey renders the
+   * saved title after the detail refresh.
+   */
+  const kbWorkbenchCardState: { value: typeof kbWorkbenchFixture.card } = {
+    value: { ...kbWorkbenchFixture.card, card: { ...kbWorkbenchFixture.card.card } },
+  }
+
+  /**
+   * The fixture's team wiki docs: `kbWorkbench/listDocs` / `readDoc` serve
+   * them and `writeDoc` / `removeDoc` mutate them, so the assembled docs
+   * journey renders the saved content after the write refresh. The doc paths
+   * assemble at runtime because the doc-refs gate scans literal `docs/*.md`
+   * tokens in source against the real repo tree.
+   */
+  const docPath = (name: string): string => `docs/${name}.md`
+  const kbWorkbenchDocState: { docs: Map<string, { content: string; mtime: number; size: number }> } = {
+    docs: new Map([
+      [docPath('architecture'), { content: '# 架构说明\n\n团队系统的架构说明。', mtime: 1_721_000_000_000, size: 36 }],
+      [docPath('onboarding'), { content: '# 新人指南\n\n入职第一周的阅读材料。', mtime: 1_721_000_000_000, size: 36 }],
+    ]),
+  }
+
   const rpc: ClientConnectionRpc = {
     call(channel, endpoint, payload) {
       if (channel !== '/api') {
@@ -3003,9 +3067,14 @@ function createFixtureWorld(options: FixtureOptions): FixtureWorld {
       const args = (payload as {
         args: {
           agentId: SessionId
+          sessionId?: SessionId
           line?: string
           ref?: { id: string; revision: number }
           request?: { objective?: string; maxGoalRounds?: number }
+          id?: string
+          target?: string
+          evidence?: string
+          approved?: boolean
         }
       }).args
       const sessionId = args.agentId
@@ -3021,6 +3090,62 @@ function createFixtureWorld(options: FixtureOptions): FixtureWorld {
         case 'goals/resume': return Promise.resolve(goalRemotes.resume(sessionId, args.ref as FxGoalRef))
         case 'goals/complete': return Promise.resolve(goalRemotes.complete(sessionId, args.ref as FxGoalRef))
         case 'goals/clear': return Promise.resolve(goalRemotes.clear(sessionId, args.ref as FxGoalRef))
+        // The kb governance workbench remote: deterministic canned data for
+        // the keyless assembled-snapshot lane (see kb-workbench.snapshot.ts).
+        case 'kbWorkbench/overview':
+          return Promise.resolve({ ok: true, value: kbWorkbenchFixture.overview })
+        case 'kbWorkbench/card':
+          return Promise.resolve({ ok: true, value: kbWorkbenchCardState.value })
+        case 'kbWorkbench/edit': {
+          // Mirror the host editCard's clear semantics: an empty 反例 / 来源
+          // removes the field instead of storing a blank.
+          const patch = (args as { patch?: Record<string, unknown> }).patch ?? {}
+          const cleared = ['反例', '来源'].filter(field => patch[field] === '')
+          const base = Object.fromEntries(
+            Object.entries(kbWorkbenchCardState.value.card).filter(([field]) => !cleared.includes(field)),
+          )
+          const applied = {
+            ...base,
+            ...Object.fromEntries(Object.entries(patch).filter(([, value]) => value !== '')),
+          }
+          kbWorkbenchCardState.value = {
+            ...kbWorkbenchCardState.value,
+            card: applied as typeof kbWorkbenchFixture.card.card,
+          }
+          return Promise.resolve({ ok: true, value: kbWorkbenchCardState.value })
+        }
+        case 'kbWorkbench/promote':
+          return Promise.resolve({ ok: true, value: { ...kbWorkbenchFixture.card.card, 状态: 'pending' } })
+        case 'kbWorkbench/archive':
+          return Promise.resolve({ ok: true, value: { ...kbWorkbenchFixture.card.card, 状态: 'archived' } })
+        case 'kbWorkbench/revive':
+          return Promise.resolve({ ok: true, value: { ...kbWorkbenchFixture.card.card, 状态: 'revived' } })
+        case 'kbWorkbench/review':
+          return Promise.resolve({ ok: true, value: { ...kbWorkbenchFixture.card.card, 状态: 'ready', changed: true } })
+        // The team wiki docs face: deterministic canned docs served by path,
+        // mutated by writeDoc / removeDoc (see kb-workbench.snapshot.ts).
+        case 'kbWorkbench/listDocs':
+          return Promise.resolve({ ok: true, value: [...kbWorkbenchDocState.docs.keys()].sort() })
+        case 'kbWorkbench/readDoc': {
+          const docPath = (args as { docPath?: string }).docPath ?? ''
+          const doc = kbWorkbenchDocState.docs.get(docPath)
+          if (doc === undefined) return Promise.reject(new Error(`fixture doc not found: ${docPath}`))
+          return Promise.resolve({ ok: true, value: { path: docPath, ...doc } })
+        }
+        case 'kbWorkbench/writeDoc': {
+          const docPath = (args as { docPath?: string }).docPath ?? ''
+          const content = (args as { content?: string }).content ?? ''
+          const previous = kbWorkbenchDocState.docs.get(docPath)
+          if (previous === undefined) return Promise.reject(new Error(`fixture doc not found: ${docPath}`))
+          const updated = { content, mtime: 1_721_000_000_100, size: new TextEncoder().encode(content).length }
+          kbWorkbenchDocState.docs.set(docPath, updated)
+          return Promise.resolve({ ok: true, value: { path: docPath, ...updated } })
+        }
+        case 'kbWorkbench/removeDoc': {
+          const docPath = (args as { docPath?: string }).docPath ?? ''
+          kbWorkbenchDocState.docs.delete(docPath)
+          return Promise.resolve({ ok: true, value: { path: docPath } })
+        }
         default:
           return Promise.reject(new Error(`fixture connection RPC endpoint ${JSON.stringify(endpoint)} is unavailable`))
       }

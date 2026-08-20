@@ -285,6 +285,20 @@ const SERVICE_ROLES: ServiceRole[] = [
     note: 'Folds logged plan/mode state, flushes user selections at turn boundaries, renders deployment-owned guidance, registers /plan, and keeps the plan-exit schema stable across transitions.',
   },
   {
+    key: 'kb',
+    pkg: 'kb-core',
+    title: 'Personal knowledge library',
+    mode: 'core',
+    note: 'Owns card write/read, the promotion state machine, FTS5 search with the scan degradation contract, incremental ingest, and the kb_* tools; tools append the kb/* session events.',
+  },
+  {
+    key: 'kbWorkbench',
+    pkg: 'kb-web',
+    title: 'Knowledge-base governance workbench',
+    mode: 'core',
+    note: 'Remote service over ctx.kb exposing the merged pending-review list, card reads, flywheel metrics, and the lifecycle actions; actions append the same kb/promote events the tools append.',
+  },
+  {
     key: 'agentPresets',
     pkg: 'agent-presets',
     title: 'Per-session agent composition',

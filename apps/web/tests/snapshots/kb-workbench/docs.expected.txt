@@ -1,0 +1,4 @@
+list=docs/architecture.mdReading || docs/onboarding.md
+doc=docs/architecture.md
+content=# 更新的架构说明 编辑后的正文。
+actions=Edit doc|Delete doc

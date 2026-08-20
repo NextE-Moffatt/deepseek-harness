@@ -4,6 +4,10 @@
 
 展示 DeepSeek Harness 主要接口和扩展点的可运行演示。每个子目录负责自己的配置、前置条件、命令和详细行为。
 
+## kb-web
+
+知识库治理工作台的可选 Web overlay：浏览器设置页里的待复核清单、卡片详情、生命周期动作与飞轮看板。运行 `dsh web --patch examples/kb-web/cordis.yml`；见 [kb-web/README.md](kb-web/README.md)。
+
 ## mcp-memory
 
 通过通用 MCP 客户端连接受支持第三方记忆服务器的可选 overlay。详见[记忆示例参考](mcp-memory/README.md)。

@@ -836,6 +836,110 @@ export interface Config {
 
 Source: [`packages/jobs/jobs-local/src/index.ts:31`](../packages/jobs/jobs-local/src/index.ts)
 
+<a id="deepseek-aidsh-kb-core"></a>
+
+## `@deepseek-ai/dsh-kb-core`
+
+Requires: `tools` · `systemPrompt`
+
+```ts config-catalog
+/** Deployment configuration of the kb service. */
+export interface KbConfig {
+  /** Library path relative to the session workspace root (default `kb/cards`). */
+  cardsPath?: string
+  /** Search index database path relative to the session workspace root (default `kb/.kb-index.sqlite`). */
+  indexPath?: string
+  /** Days added to today when a card's 有效期 is omitted (default 90). */
+  cardTtlDays?: number
+  /** Team library git work tree path (absolute, or relative to the session workspace root); absent disables the team library. */
+  teamRepoPath?: string
+  /** Heat ledger path relative to the session workspace root (default `kb/.kb-heat.jsonl`). */
+  heatPath?: string
+  /** Days ahead of 有效期 that count as "expiring soon" in the freshness review (default 14). */
+  freshnessWarningDays?: number
+  /** Days between scheduled freshness scans; 0 disables the scheduler (default 0). */
+  freshnessIntervalDays?: number
+  /** Route team-library write tools through the approval `ask` gate (default true). */
+  teamWriteApproval?: boolean
+  /** Recap checkpoint path relative to the session workspace root (default `kb/.kb-recap.jsonl`). */
+  recapPath?: string
+  /** Days between scheduled recap scans; 0 disables the scheduler (default 0). */
+  recapIntervalDays?: number
+  /** Knowledge packs injected at session start (default none). */
+  packs?: KnowledgePack[]
+}
+
+/**
+ * A knowledge pack: a subscribed card collection injected into agent sessions
+ * at session start. The deployment's configured pack list IS the scenario
+ * subscription — each pack carries the filters that select its cards.
+ */
+export interface KnowledgePack {
+  /** Unique pack name, shown to the model as the pack header. */
+  name: string
+  /** Filter: every listed tag must be present on the card. */
+  tags?: readonly string[]
+  /** Filter: tier allowlist (personal-library tiers). */
+  tier?: readonly CardTier[]
+  /** Filter: library allowlist; when absent, cards from both libraries are eligible. */
+  library?: readonly CardLibrary[]
+  /** Filter: status allowlist; when absent, `archived` cards are excluded by default. */
+  status?: readonly CardStatus[]
+  /** Maximum cards injected per session; no cap when absent. */
+  limit?: number
+}
+
+/** Personal-library tiers, encoded as the card's directory: P0 Inbox, P1 project notes, P2 draft cards, P3 private experience. */
+export type CardTier = 'P0' | 'P1' | 'P2' | 'P3'
+
+/** Which library a card belongs to. Milestone 1 ships `personal`; `team` is the shared git repo (post-milestone-1). */
+export type CardLibrary = 'personal' | 'team'
+
+/**
+ * Lifecycle states of the promotion pipeline. `draft` is the personal-library
+ * entry state; `pending` awaits verification; `ready` is the reference pool;
+ * `archived` is retired; `revived` is a restored-active state, distinct from
+ * never-archived `ready` so governance can tell the two apart.
+ */
+export type CardStatus = 'draft' | 'pending' | 'ready' | 'archived' | 'revived'
+```
+
+Source: [`packages/kb/kb-core/src/index.ts:101`](../packages/kb/kb-core/src/index.ts)
+
+<a id="deepseek-aidsh-kb-mcp-server"></a>
+
+## `@deepseek-ai/dsh-kb-mcp-server`
+
+Requires: `kb`
+
+```ts config-catalog
+/** Configuration for the kb MCP server. */
+export interface KbMcpServerConfig {
+  /** The workspace root whose reference pool this server exposes (absolute). */
+  root: string
+}
+```
+
+Source: [`packages/kb/kb-mcp-server/src/index.ts:36`](../packages/kb/kb-mcp-server/src/index.ts)
+
+<a id="deepseek-aidsh-kb-web"></a>
+
+## `@deepseek-ai/dsh-kb-web`
+
+Requires: `kb`
+
+```ts config-catalog
+/** Deployment configuration of the kb workbench service. */
+export interface KbWebConfig {
+  /** Cap on the unrecorded blind spots the overview lists (default 20). */
+  blindSpotLimit?: number
+  /** How many top-heat cards the flywheel metrics carry (default 3). */
+  topHeatCount?: number
+}
+```
+
+Source: [`packages/kb/kb-web/src/index.ts:36`](../packages/kb/kb-web/src/index.ts)
+
 <a id="deepseek-aidsh-llm-deepseek"></a>
 
 ## `@deepseek-ai/dsh-llm-deepseek`
@@ -3041,6 +3145,7 @@ These load from a `cordis.yml` entry with no `config:` block; they declare no co
 - `@deepseek-ai/dsh-client-ui-goal` ([`packages/client/ui-goal/src/index.ts`](../packages/client/ui-goal/src/index.ts))
 - `@deepseek-ai/dsh-client-ui-input-trigger` ([`packages/client/ui-input-trigger/src/index.ts`](../packages/client/ui-input-trigger/src/index.ts))
 - `@deepseek-ai/dsh-client-ui-jobs` ([`packages/client/ui-jobs/src/index.ts`](../packages/client/ui-jobs/src/index.ts))
+- `@deepseek-ai/dsh-client-ui-kb-workbench` ([`packages/client/ui-kb-workbench/src/index.ts`](../packages/client/ui-kb-workbench/src/index.ts))
 - `@deepseek-ai/dsh-client-ui-layout` ([`packages/client/ui-layout/src/index.ts`](../packages/client/ui-layout/src/index.ts))
 - `@deepseek-ai/dsh-client-ui-message-feedback` ([`packages/client/ui-message-feedback/src/index.ts`](../packages/client/ui-message-feedback/src/index.ts))
 - `@deepseek-ai/dsh-client-ui-model-selection` ([`packages/client/ui-model-selection/src/index.ts`](../packages/client/ui-model-selection/src/index.ts))

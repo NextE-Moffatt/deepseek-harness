@@ -790,6 +790,242 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
     ],
   },
   {
+    key: 'kb',
+    summary: '`ctx.kb`: owns the personal library seam — card write/read, promotion, search, and incremental ingest — plus the milestone-1 tools and the knowledge-pack injection wiring (session-start trigger + `kb:pack` section).',
+    description: '`ctx.kb`: owns the personal library seam — card write/read, promotion, search, and incremental ingest — plus the milestone-1 tools and the knowledge-pack injection wiring (session-start trigger + `kb:pack` section).',
+    methods: [
+      {
+        signature: 'readonly config: ResolvedKbConfig',
+        description: 'The resolved configuration.',
+        parameters: [],
+      },
+      {
+        signature: 'teamRepoRoot(root: string): string',
+        description: 'The absolute team repository path for one workspace root (config-relative paths resolve against the root).',
+        parameters: [{ name: 'root', description: 'the session workspace root.' }],
+        returns: 'the absolute team repository path.',
+      },
+      {
+        signature: 'async writeCard(root: string, input: WriteCardInput): Promise<CardWriteResult>',
+        description: 'Write a new personal-library draft card, generating the id when omitted.',
+        parameters: [{ name: 'root', description: 'the session workspace root.' }, { name: 'input', description: 'the card to write (values validated at the tool boundary).' }],
+        returns: 'the written card, tier, and absolute path.',
+      },
+      {
+        signature: 'async readCard(root: string, id: CardId): Promise<CardFileInfo>',
+        description: 'Read one card by id across all tiers.',
+        parameters: [{ name: 'root', description: 'the session workspace root.' }, { name: 'id', description: 'the card id.' }],
+        returns: 'the card file info; throws when no tier holds the id.',
+      },
+      {
+        signature: 'async search(root: string, request: SearchRequest): Promise<SearchOutcome>',
+        description: 'Search the personal and team libraries: one FTS5 BM25 query over the unified index when it is available, otherwise a deterministic full-library scan with an explicit `mode: \'scan\'` note. The team library joins when `teamRepoPath` is configured; a configured-but-broken team repository fails loud. Results are always real card files.',
+        parameters: [{ name: 'root', description: 'the session workspace root.' }, { name: 'request', description: 'the retrieval request.' }],
+        returns: 'the retrieval outcome with its mode.',
+      },
+      {
+        signature: 'async promote(root: string, id: CardId, target: CardStatus, evidence?: string): Promise<PromoteResult>',
+        description: 'Apply a promotion transition: assert the state machine, rewrite the card file, and return the new state. The caller (tool) appends `kb/promote`.',
+        parameters: [{ name: 'root', description: 'the session workspace root.' }, { name: 'id', description: 'the card id.' }, { name: 'target', description: 'the requested next state (promotion subset: `pending` or `ready`).' }, { name: 'evidence', description: 'optional objective signal.' }],
+        returns: 'the card in its new state plus the transition.',
+      },
+      {
+        signature: 'async editCard(root: string, id: CardId, patch: CardEditPatch, options?: EditCardOptions): Promise<CardEditResult>',
+        description: 'Edit one card\'s content across the personal and team libraries: validate the patch at the wire boundary, apply it preserving `id` / `库` / `状态`, guard against concurrent modification via the expected file identity, and rewrite in place. A team-card edit requires `options.approved` when `KbConfig.teamWriteApproval` is set. The caller (workbench) appends `kb/edit` when the result\'s `fields` are non-empty.',
+        parameters: [{ name: 'root', description: 'the session workspace root.' }, { name: 'id', description: 'the card id.' }, { name: 'patch', description: 'the content-field patch.' }, { name: 'options', description: 'the optimistic guard and the team approval signal.' }],
+        returns: 'the edited card with the changed field names.',
+      },
+      {
+        signature: 'importDir(options: ImportOptions): Promise<IngestResult>',
+        description: 'Run the incremental ingest over a source directory into the library at `options.root` (see importDir). A wrapped card\'s 有效期 defaults to `now + cardTtlDays` when the options omit it.',
+        parameters: [{ name: 'options', description: 'import options.' }],
+        returns: 'the import outcome.',
+      },
+      {
+        signature: 'async promoteToTeam(root: string, id: CardId, evidence: readonly string[]): Promise<{ card: Card; path: string }>',
+        description: 'The first gate\'s admission: promote a personal draft into the team library as `pending` (库: team). The gate rule from `evaluateGate` is enforced here — a BLOCK verdict throws before anything is written — so the promotion point, not the advisory `kb_gate_check` tool, is the enforcement. The personal file is removed after the team write succeeds.',
+        parameters: [{ name: 'root', description: 'the session workspace root.' }, { name: 'id', description: 'the personal draft card id.' }, { name: 'evidence', description: 'the objective signals (上线/交付/关闭/评审/复用).' }],
+        returns: 'the card in its new library plus the team file path.',
+      },
+      {
+        signature: 'async personalCard(root: string, id: CardId): Promise<CardFileInfo | undefined>',
+        description: 'Look up a card in the personal library, returning undefined when no tier holds it.',
+        parameters: [{ name: 'root', description: 'the session workspace root.' }, { name: 'id', description: 'the card id.' }],
+        returns: 'the card file info, or undefined.',
+      },
+      {
+        signature: 'async teamCard(root: string, id: CardId): Promise<TeamCardFileInfo | undefined>',
+        description: 'Look up a card in the team library, returning undefined when the library does not hold it (or is not configured).',
+        parameters: [{ name: 'root', description: 'the session workspace root.' }, { name: 'id', description: 'the card id.' }],
+        returns: 'the team card file info, or undefined.',
+      },
+      {
+        signature: 'async teamRead(root: string, id: CardId): Promise<TeamCardFileInfo>',
+        description: 'Read one team-library card.',
+        parameters: [{ name: 'root', description: 'the session workspace root.' }, { name: 'id', description: 'the card id.' }],
+        returns: 'the card file info; throws when the team library does not hold it.',
+      },
+      {
+        signature: 'async reviewTeam(root: string, id: CardId, approved: boolean): Promise<{ card: Card; changed: boolean }>',
+        description: 'The second gate (human review): an approved review transitions a team `pending` card to `ready` (the reference pool); a rejected review changes nothing and the card stays `pending` for more evidence. The caller (tool) appends `kb/promote` on approval.',
+        parameters: [{ name: 'root', description: 'the session workspace root.' }, { name: 'id', description: 'the team card id.' }, { name: 'approved', description: 'whether the reviewer approved the card.' }],
+        returns: 'the card and whether the state changed.',
+      },
+      {
+        signature: 'async archiveTeam(root: string, id: CardId): Promise<{ card: Card; from: CardStatus; path: string }>',
+        description: 'Archive a team card: `ready` or `revived` → `archived` (the state machine\'s retire edges; other states fail loud).',
+        parameters: [{ name: 'root', description: 'the session workspace root.' }, { name: 'id', description: 'the team card id.' }],
+        returns: 'the card in its new state, the previous state, and the file path.',
+      },
+      {
+        signature: 'async reviveTeam(root: string, id: CardId): Promise<{ card: Card; from: CardStatus; path: string }>',
+        description: 'Revive an archived team card: `archived` → `revived`.',
+        parameters: [{ name: 'root', description: 'the session workspace root.' }, { name: 'id', description: 'the team card id.' }],
+        returns: 'the card in its new state, the previous state, and the file path.',
+      },
+      {
+        signature: 'async teamStatus(root: string): Promise<string[]>',
+        description: 'The team work tree\'s porcelain status — what a commit would carry.',
+        parameters: [{ name: 'root', description: 'the session workspace root.' }],
+        returns: 'the non-empty porcelain lines.',
+      },
+      {
+        signature: 'async teamCommit(root: string, message: string): Promise<string>',
+        description: 'Stage and commit the team work tree (the human review point: review the status, then commit). Fails loud when nothing is staged or git rejects.',
+        parameters: [{ name: 'root', description: 'the session workspace root.' }, { name: 'message', description: 'the commit message.' }],
+        returns: 'the raw commit output.',
+      },
+      {
+        signature: 'async listTeamDocs(root: string): Promise<string[]>',
+        description: 'The wiki documents under the team library\'s `docs/`, repository-relative.',
+        parameters: [{ name: 'root', description: 'the session workspace root.' }],
+        returns: 'the sorted doc paths.',
+      },
+      {
+        signature: 'async readTeamDoc(root: string, docPath: string): Promise<string>',
+        description: 'Read one wiki document.',
+        parameters: [{ name: 'root', description: 'the session workspace root.' }, { name: 'docPath', description: 'the repository-relative doc path (`docs/...`).' }],
+        returns: 'the document text.',
+      },
+      {
+        signature: 'async teamDocInfo(root: string, docPath: string): Promise<{ path: string; mtime: number; size: number }>',
+        description: 'The identity of one wiki document (mtime + size), the write conflict guard\'s expected values. Fails loud when the doc is missing or escapes `docs/`.',
+        parameters: [{ name: 'root', description: 'the session workspace root.' }, { name: 'docPath', description: 'the repository-relative doc path (`docs/...`).' }],
+        returns: 'the repository-relative path and the file identity.',
+      },
+      {
+        signature: 'async writeTeamDoc(root: string, docPath: string, content: string, options?: TeamDocWriteOptions): Promise<TeamDocWriteResult>',
+        description: 'Write (overwrite) one team wiki document: refuse paths that escape `docs/` or lack a `.md` extension, guard against concurrent modification via the expected file identity, and require `options.approved` when `KbConfig.teamWriteApproval` is set (docs live only in the team library). The caller (workbench) appends `kb/doc-write` after the write succeeds.',
+        parameters: [{ name: 'root', description: 'the session workspace root.' }, { name: 'docPath', description: 'the repository-relative doc path (`docs/...`).' }, { name: 'content', description: 'the document text (non-empty).' }, { name: 'options', description: 'the optimistic guard and the team approval signal.' }],
+        returns: 'the repository-relative path and the file identity after the write.',
+      },
+      {
+        signature: 'async removeTeamDoc(root: string, docPath: string, options?: TeamDocWriteOptions): Promise<{ path: string }>',
+        description: 'Remove one team wiki document: refuse paths that escape `docs/` or lack a `.md` extension, require `options.approved` when `KbConfig.teamWriteApproval` is set, and fail loud when the doc is already gone. The caller (workbench) appends `kb/doc-remove` after the removal succeeds; the git work tree retains the deleted file\'s history through `kb_team_commit`.',
+        parameters: [{ name: 'root', description: 'the session workspace root.' }, { name: 'docPath', description: 'the repository-relative doc path (`docs/...`).' }, { name: 'options', description: 'the team approval signal.' }],
+        returns: 'the repository-relative path removed.',
+      },
+      {
+        signature: 'async heat(root: string): Promise<HeatRow[]>',
+        description: 'The workspace\'s aggregated heat ledger: which cards were consumed by which sessions, projected from `kb/injected` events (see HeatLedger).',
+        parameters: [{ name: 'root', description: 'the session workspace root.' }],
+        returns: 'the per-card heat rows, card-id ascending.',
+      },
+      {
+        signature: 'freshnessReview(root: string, today?: string): Promise<FreshnessReview>',
+        description: 'The freshness pending-review list for one workspace (see freshnessReview).',
+        parameters: [{ name: 'root', description: 'the session workspace root.' }, { name: 'today', description: 'the reference date `YYYY-MM-DD` (defaults to today, local).' }],
+        returns: 'the review list.',
+      },
+      {
+        signature: 'async recap(root: string, limit: number): Promise<RecapScanResult>',
+        description: 'Run one recap scan for one workspace: detect the unrecorded blind spots (sessions that consumed knowledge but produced no card), list up to `limit`, and record the listed positions (see runRecapScan). The caller (tool) appends the `kb/recap` event when positions were recorded.',
+        parameters: [{ name: 'root', description: 'the session workspace root.' }, { name: 'limit', description: 'the listing cap (a positive integer).' }],
+        returns: 'the scan outcome.',
+      },
+    ],
+  },
+  {
+    key: 'kbWorkbench',
+    summary: '`ctx.kbWorkbench`: owns the web governance workbench seam — merged pending-review views, card reads, flywheel metrics, lifecycle actions, and the team wiki docs face over `ctx.kb`.',
+    description: '`ctx.kbWorkbench`: owns the web governance workbench seam — merged pending-review views, card reads, flywheel metrics, lifecycle actions, and the team wiki docs face over `ctx.kb`. Every Remote method takes the session first; the workspace root derives from `session.header.cwd`.',
+    methods: [
+      {
+        signature: 'readonly config: ResolvedKbWebConfig',
+        description: 'The resolved configuration.',
+        parameters: [],
+      },
+      {
+        signature: '@Remote(\'overview\') async overview(session: Session, today?: string): Promise<KbWorkbenchOverview>',
+        description: 'The merged pending-review view: freshness, the unrecorded recap blind spots (detection without recording, so the checkpoint queue stays with the tool and the scheduler), the heat ledger, and the flywheel metrics.',
+        parameters: [{ name: 'session', description: 'the workbench session (its cwd is the workspace root).' }, { name: 'today', description: 'the reference date `YYYY-MM-DD` (defaults to today, local).' }],
+        returns: 'the overview.',
+      },
+      {
+        signature: '@Remote(\'card\') async card(session: Session, id: string): Promise<KbWorkbenchCard>',
+        description: 'Read one full card across the personal and team libraries.',
+        parameters: [{ name: 'session', description: 'the workbench session (its cwd is the workspace root).' }, { name: 'id', description: 'the card id.' }],
+        returns: 'the card view with its library, tier, path, derived grade, and file identity (the edit conflict guard\'s expected values).',
+        throws: ['when no library holds the id.'],
+      },
+      {
+        signature: '@Remote(\'edit\') async edit(session: Session, id: string, patch: KbWorkbenchEditPatch, options?: KbWorkbenchEditOptions): Promise<KbWorkbenchCard>',
+        description: 'The content-edit action: apply the patch through `KbService.editCard` (conflict-guarded, team-gated) and append `kb/edit` to the workbench session\'s log when the edit changed anything. The card file stays the content source of truth, exactly like `kb_write`\'s `kb/write` event.',
+        parameters: [{ name: 'session', description: 'the workbench session (its cwd is the workspace root).' }, { name: 'id', description: 'the card id.' }, { name: 'patch', description: 'the content-field patch.' }, { name: 'options', description: 'the expected file identity and the team approval signal.' }],
+        returns: 'the refreshed card view.',
+      },
+      {
+        signature: '@Remote(\'listDocs\') async listDocs(session: Session): Promise<string[]>',
+        description: 'The team wiki documents under the team library\'s `docs/`.',
+        parameters: [{ name: 'session', description: 'the workbench session (its cwd is the workspace root).' }],
+        returns: 'the sorted repository-relative doc paths.',
+      },
+      {
+        signature: '@Remote(\'readDoc\') async readDoc(session: Session, docPath: string): Promise<KbWorkbenchDoc>',
+        description: 'Read one team wiki document with the file identity the write conflict guard expects.',
+        parameters: [{ name: 'session', description: 'the workbench session (its cwd is the workspace root).' }, { name: 'docPath', description: 'the repository-relative doc path (`docs/...`).' }],
+        returns: 'the document view.',
+        throws: ['when the path escapes `docs/` or the doc is missing.'],
+      },
+      {
+        signature: '@Remote(\'writeDoc\') async writeDoc(session: Session, docPath: string, content: string, options?: KbWorkbenchDocOptions): Promise<KbWorkbenchDoc>',
+        description: 'The team-doc write action: overwrite through `KbService.writeTeamDoc` (conflict-guarded, team-gated) and append `kb/doc-write` to the workbench session\'s log. The doc file stays the content source of truth; docs never enter the reference pool.',
+        parameters: [{ name: 'session', description: 'the workbench session (its cwd is the workspace root).' }, { name: 'docPath', description: 'the repository-relative doc path (`docs/...`).' }, { name: 'content', description: 'the document text.' }, { name: 'options', description: 'the expected file identity and the team approval signal.' }],
+        returns: 'the refreshed document view.',
+      },
+      {
+        signature: '@Remote(\'removeDoc\') async removeDoc(session: Session, docPath: string, options?: KbWorkbenchDocOptions): Promise<{ path: string }>',
+        description: 'The team-doc remove action: delete through `KbService.removeTeamDoc` (team-gated) and append `kb/doc-remove` to the workbench session\'s log; the git work tree and the explicit `kb_team_commit` retain history.',
+        parameters: [{ name: 'session', description: 'the workbench session (its cwd is the workspace root).' }, { name: 'docPath', description: 'the repository-relative doc path (`docs/...`).' }, { name: 'options', description: 'the team approval signal.' }],
+        returns: 'the removed repository-relative doc path.',
+      },
+      {
+        signature: '@Remote(\'promote\') async promote(session: Session, id: string, target: CardStatus, evidence?: string): Promise<{ card: Card from: CardStatus to: CardStatus path: string evidence?: string }>',
+        description: 'The promotion action: apply the transition and append `kb/promote` to the workbench session\'s log, exactly like `kb_promote`.',
+        parameters: [{ name: 'session', description: 'the workbench session (its cwd is the workspace root).' }, { name: 'id', description: 'the personal card id.' }, { name: 'target', description: 'the promotion subset (`pending` or `ready`).' }, { name: 'evidence', description: 'optional objective signal.' }],
+        returns: 'the card in its new state plus the transition.',
+      },
+      {
+        signature: '@Remote(\'archive\') async archive(session: Session, id: string): Promise<{ card: Card; from: CardStatus; path: string }>',
+        description: 'The archive action: retire a team card and append `kb/promote`, exactly like `kb_archive`.',
+        parameters: [{ name: 'session', description: 'the workbench session (its cwd is the workspace root).' }, { name: 'id', description: 'the team card id.' }],
+        returns: 'the card in its new state, the previous state, and the file path.',
+      },
+      {
+        signature: '@Remote(\'revive\') async revive(session: Session, id: string): Promise<{ card: Card; from: CardStatus; path: string }>',
+        description: 'The revive action: restore an archived team card and append `kb/promote`, exactly like `kb_revive`.',
+        parameters: [{ name: 'session', description: 'the workbench session (its cwd is the workspace root).' }, { name: 'id', description: 'the team card id.' }],
+        returns: 'the card in its new state, the previous state, and the file path.',
+      },
+      {
+        signature: '@Remote(\'review\') async review(session: Session, id: string, approved: boolean): Promise<{ card: Card; changed: boolean }>',
+        description: 'The second-gate action: an approved review transitions a team `pending` card to `ready` and appends `kb/promote`; a rejected review changes nothing and appends nothing, exactly like `kb_review`.',
+        parameters: [{ name: 'session', description: 'the workbench session (its cwd is the workspace root).' }, { name: 'id', description: 'the team card id.' }, { name: 'approved', description: 'whether the reviewer approved the card.' }],
+        returns: 'the card and whether the state changed.',
+      },
+    ],
+  },
+  {
     key: 'llm',
     summary: 'The abstract `llm` service: an adapter registry plus a streaming model-call API, interceptable via the `llm/stream` waterfall.',
     description: 'The abstract `llm` service: an adapter registry plus a streaming model-call API, interceptable via the `llm/stream` waterfall.',
@@ -2736,12 +2972,60 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export interface BashEnvVariableInfo extends BashEnvVariable {\n    contributor: string;\n    key: DshEnvironmentKey;\n}',
   },
   {
+    name: 'BlindSpotEntry',
+    declaration: 'export interface BlindSpotEntry {\n    sessionId: SessionId;\n    at: string;\n    consumed: CardId[];\n    excerpt: string;\n}',
+  },
+  {
     name: 'Branded',
     declaration: 'export type Branded<B extends string> = string & {\n    readonly [BRAND]: B;\n};',
   },
   {
     name: 'CancelOptions',
     declaration: 'export interface CancelOptions {\n    keepInbox?: boolean | undefined;\n}',
+  },
+  {
+    name: 'Card',
+    declaration: 'export interface Card {\n    id: CardId;\n    type: CardType;\n    title: string;\n    库: CardLibrary;\n    状态: CardStatus;\n    适用条件: string;\n    核心结论: string;\n    应做: string[];\n    不应做: string[];\n    反例?: string;\n    来源?: string;\n    责任人: string;\n    有效期: string;\n    标签: string[];\n}',
+  },
+  {
+    name: 'CardEditPatch',
+    declaration: 'export interface CardEditPatch {\n    type?: CardType;\n    title?: string;\n    适用条件?: string;\n    核心结论?: string;\n    应做?: string[];\n    不应做?: string[];\n    反例?: string;\n    来源?: string;\n    责任人?: string;\n    有效期?: string;\n    标签?: string[];\n}',
+  },
+  {
+    name: 'CardEditResult',
+    declaration: 'export interface CardEditResult {\n    card: Card;\n    library: CardLibrary;\n    tier: CardTier | \'team\';\n    path: string;\n    fields: string[];\n}',
+  },
+  {
+    name: 'CardFileInfo',
+    declaration: 'export interface CardFileInfo {\n    card: Card;\n    tier: CardTier;\n    path: string;\n    mtime: number;\n    size: number;\n}',
+  },
+  {
+    name: 'CardGrade',
+    declaration: 'export type CardGrade = \'verified\' | \'pending\' | \'verify\';',
+  },
+  {
+    name: 'CardId',
+    declaration: 'export type CardId = Branded<\'CardId\'>;',
+  },
+  {
+    name: 'CardLibrary',
+    declaration: 'export type CardLibrary = \'personal\' | \'team\';',
+  },
+  {
+    name: 'CardStatus',
+    declaration: 'export type CardStatus = \'draft\' | \'pending\' | \'ready\' | \'archived\' | \'revived\';',
+  },
+  {
+    name: 'CardTier',
+    declaration: 'export type CardTier = \'P0\' | \'P1\' | \'P2\' | \'P3\';',
+  },
+  {
+    name: 'CardType',
+    declaration: 'export type CardType = \'rule\' | \'case\' | \'howto\' | \'decision\';',
+  },
+  {
+    name: 'CardWriteResult',
+    declaration: 'export interface CardWriteResult {\n    card: Card;\n    tier: CardTier;\n    path: string;\n}',
   },
   {
     name: 'ClientResponse',
@@ -3028,6 +3312,10 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export interface DynamicCordisRunRequest {\n    requestId: ApprovalRequestId;\n    agentId: SessionId;\n    pluginId: CordisDynamicPluginId;\n    packageId: CordisDynamicPackageId;\n    mode: CordisDynamicRunMode;\n    name: string;\n    purpose: string;\n    requiresApproval: boolean;\n}',
   },
   {
+    name: 'EditCardOptions',
+    declaration: 'export interface EditCardOptions {\n    expected?: {\n        mtime: number;\n        size: number;\n    };\n    approved?: boolean;\n}',
+  },
+  {
     name: 'EditGoalRequest',
     declaration: 'export interface EditGoalRequest {\n    readonly objective?: string;\n    readonly maxGoalRounds?: number;\n}',
   },
@@ -3050,6 +3338,14 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'FinishReasonMap',
     declaration: 'export interface FinishReasonMap {\n    \'stop\': {\n        kind: \'stop\';\n    };\n    \'tool-calls\': {\n        kind: \'tool-calls\';\n    };\n    \'max-tokens\': {\n        kind: \'max-tokens\';\n    };\n    \'aborted\': {\n        kind: \'aborted\';\n        failure: LlmFailure;\n    };\n    \'error\': {\n        kind: \'error\';\n        failure: LlmFailure;\n    };\n}',
+  },
+  {
+    name: 'FreshnessRecommendation',
+    declaration: 'export type FreshnessRecommendation = \'renew\' | \'review\' | \'archive-candidate\' | \'revive-candidate\';',
+  },
+  {
+    name: 'FreshnessReview',
+    declaration: 'export interface FreshnessReview {\n    overdue: ReviewEntry[];\n    expiringSoon: ReviewEntry[];\n    total: number;\n}',
   },
   {
     name: 'FsDirEntry',
@@ -3136,6 +3432,10 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export interface GoalView extends GoalSnapshot {\n    readonly roundsStarted: number;\n    readonly createdAt: number;\n    readonly updatedAt: number;\n    readonly activation: GoalActivation;\n}',
   },
   {
+    name: 'HeatRow',
+    declaration: 'export interface HeatRow {\n    cardId: CardId;\n    count: number;\n    lastAt: string;\n    sessions: string[];\n    packs: string[];\n}',
+  },
+  {
     name: 'ImageAttachmentLimits',
     declaration: 'export interface ImageAttachmentLimits {\n    maxImageBytes: number;\n    maxImagesPerMessage: number;\n    maxMessageImageBytes: number;\n    maxImagePixels: number;\n    mediaTypes: readonly ImageMediaType[];\n}',
   },
@@ -3152,6 +3452,10 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export type ImageMediaType = \'image/png\' | \'image/jpeg\' | \'image/webp\' | \'image/gif\';',
   },
   {
+    name: 'ImportOptions',
+    declaration: 'export interface ImportOptions {\n    root: string;\n    sourceDir: string;\n    tier: CardTier;\n    cardTtlDays?: number;\n}',
+  },
+  {
     name: 'Inbox',
     declaration: 'export class Inbox {\n    constructor(private readonly session: Session, private readonly notifications: InboxNotifications);\n    get nextTurn(): readonly UserMessage[];\n    get nextStep(): readonly UserMessage[];\n    get hasPending(): boolean;\n    clear(): void;\n    claim(target: InboxTarget, turn: number): UserMessage[];\n    append(target: InboxTarget, message: UserMessage): void;\n    prepend(target: InboxTarget, message: UserMessage): void;\n    replace(messageId: MessageId, newMessage: UserMessage): boolean;\n    remove(messageId: MessageId): boolean;\n    splice(target: InboxTarget, start: number, deleteCount: number, inserted: UserMessage[]): UserMessage[];\n}',
   },
@@ -3162,6 +3466,10 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'InboxTarget',
     declaration: 'export type InboxTarget = \'next-turn\' | \'next-step\';',
+  },
+  {
+    name: 'IngestResult',
+    declaration: 'export interface IngestResult {\n    imported: CardId[];\n    skipped: number;\n    skippedRaw: number;\n}',
   },
   {
     name: 'InvariantFailure',
@@ -3248,8 +3556,48 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export type JsonValue = null | boolean | number | string | JsonValue[] | {\n    [key: string]: JsonValue;\n};',
   },
   {
+    name: 'KbBlindSpotView',
+    declaration: 'export interface KbBlindSpotView {\n    readonly sessionId: string;\n    readonly at: string;\n    readonly consumed: readonly CardId[];\n    readonly excerpt: string;\n}',
+  },
+  {
+    name: 'KbFlywheelMetrics',
+    declaration: 'export interface KbFlywheelMetrics {\n    readonly injections: number;\n    readonly topHeat: readonly KbTopHeatEntry[];\n    readonly promotions: number;\n    readonly pendingReview: number;\n    readonly blindSpots: number;\n}',
+  },
+  {
+    name: 'KbTopHeatEntry',
+    declaration: 'export interface KbTopHeatEntry {\n    readonly cardId: CardId;\n    readonly title: string;\n    readonly count: number;\n    readonly lastSession: string;\n}',
+  },
+  {
+    name: 'KbWorkbenchCard',
+    declaration: 'export interface KbWorkbenchCard {\n    readonly library: CardLibrary;\n    readonly card: Card;\n    readonly tier: string;\n    readonly path: string;\n    readonly grade: CardGrade;\n    readonly mtime: number;\n    readonly size: number;\n}',
+  },
+  {
+    name: 'KbWorkbenchDoc',
+    declaration: 'export interface KbWorkbenchDoc {\n    readonly path: string;\n    readonly content: string;\n    readonly mtime: number;\n    readonly size: number;\n}',
+  },
+  {
+    name: 'KbWorkbenchDocOptions',
+    declaration: 'export interface KbWorkbenchDocOptions {\n    readonly expected?: {\n        mtime: number;\n        size: number;\n    };\n    readonly approved?: boolean;\n}',
+  },
+  {
+    name: 'KbWorkbenchEditOptions',
+    declaration: 'export interface KbWorkbenchEditOptions {\n    readonly expected?: {\n        mtime: number;\n        size: number;\n    };\n    readonly approved?: boolean;\n}',
+  },
+  {
+    name: 'KbWorkbenchEditPatch',
+    declaration: 'export type KbWorkbenchEditPatch = CardEditPatch;',
+  },
+  {
+    name: 'KbWorkbenchOverview',
+    declaration: 'export interface KbWorkbenchOverview {\n    readonly scanDate: string;\n    readonly freshness: FreshnessReview;\n    readonly blindSpots: readonly KbBlindSpotView[];\n    readonly heat: readonly HeatRow[];\n    readonly metrics: KbFlywheelMetrics;\n}',
+  },
+  {
     name: 'KnobState',
     declaration: 'export interface KnobState {\n    preset: string | null;\n    sandbox: SandboxMode | null;\n    approval: ApprovalPolicy | null;\n}',
+  },
+  {
+    name: 'KnowledgePack',
+    declaration: 'export interface KnowledgePack {\n    name: string;\n    tags?: readonly string[];\n    tier?: readonly CardTier[];\n    library?: readonly CardLibrary[];\n    status?: readonly CardStatus[];\n    limit?: number;\n}',
   },
   {
     name: 'KvFacet',
@@ -3540,6 +3888,10 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export interface ProjectionSnapshot {\n    asOfSeq: number;\n    values: Partial<SessionProjectionMap>;\n}',
   },
   {
+    name: 'PromoteResult',
+    declaration: 'export interface PromoteResult {\n    card: Card;\n    from: CardStatus;\n    to: CardStatus;\n    evidence?: string;\n    path: string;\n}',
+  },
+  {
     name: 'PromptAssembly',
     declaration: 'export interface PromptAssembly {\n    sections: AssembledSection[];\n    contexts: AssembledContext[];\n    tools: ToolSchema[];\n    variables: Record<string, string | undefined>;\n}',
   },
@@ -3580,6 +3932,14 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export type ReasoningEffortId = Branded<\'ReasoningEffortId\'>;',
   },
   {
+    name: 'RecapPosition',
+    declaration: 'export interface RecapPosition {\n    sessionId: SessionId;\n    eventCount: number;\n}',
+  },
+  {
+    name: 'RecapScanResult',
+    declaration: 'export interface RecapScanResult {\n    scanDate: string;\n    total: number;\n    entries: BlindSpotEntry[];\n    recorded: RecapPosition[];\n}',
+  },
+  {
     name: 'RedactedSecret',
     declaration: 'export interface RedactedSecret {\n    path: string[];\n    set: boolean;\n}',
   },
@@ -3612,6 +3972,14 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export interface ResolvedCredential {\n    value: string;\n    source: string;\n}',
   },
   {
+    name: 'ResolvedKbConfig',
+    declaration: 'export interface ResolvedKbConfig {\n    cardsPath: string;\n    indexPath: string;\n    cardTtlDays: number;\n    teamRepoPath?: string;\n    heatPath: string;\n    freshnessWarningDays: number;\n    freshnessIntervalDays: number;\n    teamWriteApproval: boolean;\n    recapPath: string;\n    recapIntervalDays: number;\n    packs: KnowledgePack[];\n}',
+  },
+  {
+    name: 'ResolvedKbWebConfig',
+    declaration: 'export interface ResolvedKbWebConfig {\n    blindSpotLimit: number;\n    topHeatCount: number;\n}',
+  },
+  {
     name: 'ResolvedNormalRetryPolicy',
     declaration: 'export interface ResolvedNormalRetryPolicy extends ResolvedRetryBackoff {\n    readonly mode: \'normal\';\n    readonly maxRetries: number;\n    readonly retryableCodes: readonly string[];\n}',
   },
@@ -3634,6 +4002,10 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'ResumeAgentOptions',
     declaration: 'export interface ResumeAgentOptions {\n    readonly resumeSessionId: SessionId;\n    readonly agentOptions?: AgentOptions;\n    readonly signal?: AbortSignal;\n    readonly setup?: AgentSetup;\n}',
+  },
+  {
+    name: 'ReviewEntry',
+    declaration: 'export interface ReviewEntry {\n    id: string;\n    title: string;\n    library: CardLibrary;\n    status: CardStatus;\n    grade: CardGrade;\n    有效期: string;\n    daysLeft: number;\n    heat: number;\n    recommend: FreshnessRecommendation;\n}',
   },
   {
     name: 'RpcError',
@@ -3712,6 +4084,10 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export interface SearchFileMatches {\n    path: string;\n    matches: SearchLineMatch[];\n}',
   },
   {
+    name: 'SearchHit',
+    declaration: 'export interface SearchHit {\n    id: CardId;\n    title: string;\n    type: CardType;\n    status: CardStatus;\n    library: CardLibrary;\n    tier: CardTier | \'team\';\n    path: string;\n    适用条件: string;\n    标签: string[];\n    score: number;\n}',
+  },
+  {
     name: 'SearchLineMatch',
     declaration: 'export interface SearchLineMatch {\n    lineNumber: number;\n    line: string;\n}',
   },
@@ -3720,8 +4096,16 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export interface SearchMatchesResultView {\n    card: \'search\';\n    shape: \'matches\';\n    title?: string;\n    files: SearchFileMatches[];\n    truncated: boolean;\n    total: number;\n}',
   },
   {
+    name: 'SearchOutcome',
+    declaration: 'export interface SearchOutcome {\n    mode: \'fts\' | \'scan\';\n    total: number;\n    hits: SearchHit[];\n    note?: string;\n}',
+  },
+  {
     name: 'SearchPathsResultView',
     declaration: 'export interface SearchPathsResultView {\n    card: \'search\';\n    shape: \'paths\';\n    title?: string;\n    paths: string[];\n    truncated: boolean;\n    total: number;\n}',
+  },
+  {
+    name: 'SearchRequest',
+    declaration: 'export interface SearchRequest {\n    query: string;\n    type?: CardType;\n    status?: CardStatus;\n    tier?: CardTier;\n    tags?: readonly string[];\n    limit: number;\n}',
   },
   {
     name: 'SearchResultView',
@@ -4252,6 +4636,18 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export type TableValueOf<S extends DomainSpec, N extends keyof S[\'tables\']> = S[\'tables\'][N] extends DomainTableSpec<string, infer V> ? V : never;',
   },
   {
+    name: 'TeamCardFileInfo',
+    declaration: 'export interface TeamCardFileInfo {\n    card: Card;\n    path: string;\n    mtime: number;\n    size: number;\n}',
+  },
+  {
+    name: 'TeamDocWriteOptions',
+    declaration: 'export interface TeamDocWriteOptions {\n    expected?: {\n        mtime: number;\n        size: number;\n    };\n    approved?: boolean;\n}',
+  },
+  {
+    name: 'TeamDocWriteResult',
+    declaration: 'export interface TeamDocWriteResult {\n    path: string;\n    mtime: number;\n    size: number;\n}',
+  },
+  {
     name: 'TerminalBackend',
     declaration: 'export interface TerminalBackend {\n    readonly type: string;\n    spawn(spec: TerminalBackendSpawnSpec): Promise<TerminalBackendSession>;\n}',
   },
@@ -4654,6 +5050,10 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'WorkflowStopReason',
     declaration: 'export type WorkflowStopReason = \'completed\' | \'cancelled\' | \'error\';',
+  },
+  {
+    name: 'WriteCardInput',
+    declaration: 'export interface WriteCardInput {\n    tier: CardTier;\n    id?: CardId;\n    type: CardType;\n    title: string;\n    适用条件: string;\n    核心结论: string;\n    应做: string[];\n    不应做: string[];\n    反例?: string;\n    来源?: string;\n    责任人: string;\n    有效期?: string;\n    标签: string[];\n}',
   },
 ]
 

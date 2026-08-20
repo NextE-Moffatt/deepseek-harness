@@ -28,6 +28,7 @@ import { AttachmentStore } from '@deepseek-ai/dsh-attachment'
 import type { ImageAttachmentLimits, ImageAttachmentRef, SaveImageAttachment, StoredImageAttachment } from '@deepseek-ai/dsh-attachment'
 import UserQuestionService from '@deepseek-ai/dsh-user-questions'
 import PlanModeController from '@deepseek-ai/dsh-plan-mode'
+import KbService from '@deepseek-ai/dsh-kb-core'
 import WebRuntime from '@deepseek-ai/dsh-web'
 import * as WebSearchExa from '@deepseek-ai/dsh-web-search-exa'
 import * as WebFetchLocal from '@deepseek-ai/dsh-web-fetch-http'
@@ -208,6 +209,20 @@ const TOOL_PACKAGES: ToolPackage[] = [
     async mount() {},
     note:
       'Owned by the tool registry as a reserved transport outside filterable capability layers under `mode: code` / `mode: both` (see the Code Mode Agent Note). Under `code` it is the registry\'s only wire contribution; the other visible capabilities are declared in a generated SDK section in the loaded runtime\'s language, and a program calls them through bindings scheduled under the native concurrency contract (submission-ordered starts and policy; concurrency-safe bodies overlap up to `maxParallelSubCalls`) that re-enter the complete guarded tool pipeline and link each nested execution to this outer result.',
+  },
+  {
+    pkg: '@deepseek-ai/dsh-kb-core',
+    dir: 'kb-core',
+    source: 'packages/kb/kb-core/src/index.ts',
+    requires: ['ctx.tools', 'ctx.systemPrompt', 'a calling Agent with a session workspace (execution time)'],
+    writes: ['tool/call', 'kb/write', 'kb/promote', 'tool/result'],
+    async mount(ctx) {
+      // Registration never touches the filesystem; the schemas harvest without
+      // a workspace or session.
+      await ctx.plugin(KbService)
+    },
+    note:
+      'The four kb tools are the personal-library consumer of the knowledge-base seam. kb_write creates draft cards in the session workspace (kb/cards/{tier}/{id}.md); kb_search runs FTS5 BM25 with an explicit scan-mode degradation when the index cannot open; kb_promote drives the promotion state machine (draft → pending → ready).',
   },
   {
     pkg: '@deepseek-ai/dsh-plan-mode',

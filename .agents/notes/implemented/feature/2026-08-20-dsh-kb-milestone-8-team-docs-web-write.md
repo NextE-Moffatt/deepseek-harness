@@ -1,0 +1,37 @@
+# Agent Note: dsh-kb milestone 8 — team docs web write (B3)
+
+Status: implemented
+
+English | [中文](2026-08-20-dsh-kb-milestone-8-team-docs-web-write.zh.md)
+
+## Problem
+
+Milestones 1–7 closed the agent loop and the human loop: card write/read/search, knowledge packs, team governance, recap, the web workbench (read-only lifecycle, then the [milestone-7](2026-08-19-dsh-kb-milestone-7-doc-import-and-workbench-edit.md) card-content edit), read-only MCP exposure, unified dual-library search, and raw-note import. B3's trigger condition — a read-only-boundary relaxation decision — became satisfied when milestone-7 B2 relaxed the same boundary for card content (team edit same-privilege plus the approval gate). The one remaining human write gap is the team library's `docs/` wiki layer: `KbService.listTeamDocs` / `readTeamDoc` already expose the read face and the workbench can list and read docs, but no human path writes or removes wiki documents, so a person cannot correct or maintain the team's wiki from the web surface — the human-machine governance of the team knowledge base misses its last write path.
+
+## Decision
+
+**B3 — the workbench writes team docs through one new service method pair, three new Remotes, and two new session events.** The operations are overwrite (`KbService.writeTeamDoc`) and remove (`KbService.removeTeamDoc`). Creation stays with the team's own git workflow (the wiki is the team's authoring surface; the workbench governs existing content, matching the docs-are-for-humans contract), and a rename/move is delete + write in the work tree, also out of scope. The path boundary is the same escape rejection `readDoc` enforces — `resolve(root, docPath)` must stay under `docs/` — and write/remove additionally require a `.md` extension so every doc the workbench touches is listable by `listDocs` (`.md` only). Content is a non-empty trimmed string; an empty doc is a misconfiguration and fails loud.
+
+**The approval gate and the optimistic guard transfer from B2.** Docs live only in the team library, so every write and remove is team-gated: under `KbConfig.teamWriteApproval` (default true) `writeTeamDoc` / `removeTeamDoc` require `options.approved`, enforced inside the operations that make the decision — the human workbench's confirmation is the approval signal, exactly like the B2 card edit (no open agent turn, the human is the approver). The doc's file identity is mtime + size (files in the same work tree as cards); `writeTeamDoc` accepts `options.expected` and throws the same conflict error as `editCard` when the on-disk identity differs or the doc vanished. `removeTeamDoc` is terminal and identity-free: the git work tree plus the explicit `kb_team_commit` retain history, so a stale delete of the viewed file is recoverable.
+
+**The write facts are session events; docs still never reach the model pool.** `kb/doc-write` (`{ path, size }`) and `kb/doc-remove` (`{ path }`) join `SessionEventMap`, `KNOWN_SESSION_EVENT_TYPES`, the persistence catalog, and the `@deepseek-ai/dsh-kb-core` invariant companion (`validateDocWrite` / `validateDocRemove`). The workbench appends them to the workbench session's own log after the write succeeds, so a human doc write is a session fact reconstructable from the log like `kb/edit` — the model-visible ⟺ logged invariant holds for the human write side. The docs discipline is unchanged and reinforced: docs never enter the card list, the search index, the citation pool, knowledge-pack injection, freshness, heat, or recap — every one of those surfaces reads cards only.
+
+**The Remote face and the UI block are the B2 pattern.** `KbWorkbenchService` gains `@Remote('listDocs')`, `@Remote('readDoc')`, `@Remote('writeDoc')`, and `@Remote('removeDoc')`; `KbWorkbenchDoc` carries `{ path, content, mtime, size }` (the identity the conflict guard expects, like `KbWorkbenchCard`). `writeDoc` / `removeDoc` wrap the service methods and append the event, then `writeDoc` returns the refreshed doc view. The workbench section gains a team-docs block: the doc list, a read view, an edit form, and a remove action with the same team confirmation the card edit uses.
+
+## Alternatives considered
+
+**Create-from-workbench plus full rename/move.** Rejected: the git work tree owns create and rename semantics, and the milestone scope (list, read, edit) does not require them; shipping an unguarded create would also open a second, identity-free write path that the B2 concurrency story deliberately avoids.
+
+**Route the doc write through the tool `ask` approval seam.** Rejected for the B2 reason: the seam requires an open agent turn and a composed approval service, neither guaranteed by the workbench composition, and the human clicking save is the approver — the explicit `approved` flag carried with the operation is the enforcement point.
+
+**Guard the write with a content hash.** Rejected: mtime + size identity transfers verbatim from cards and the ingest checkpoint, and a hash would add a full-file read to every write; the documented sub-second residual of the identity applies equally.
+
+**One shared `kb/doc` event carrying an `operation` field.** Rejected: the operation is the payload's discriminator, and two events keep the log reconstructable without inventing a field — the same split the `kb/write` event and the absent card-delete path already draw.
+
+**A content size cap on docs.** Rejected: a wiki document is legitimately long, card content carries no cap, and an arbitrary ceiling would block real documentation; the wire boundary, the closed path contract, and the approval gate bound the surface.
+
+## Consequences
+
+`packages/kb/kb-core`: `TeamCardStore` gains `writeDoc` / `removeDoc` / `docInfo` (escape + `.md` guard shared with the read face), and `KbService` gains `writeTeamDoc` / `removeTeamDoc` / `teamDocInfo` with the approval gate, the optimistic identity guard, and loud failures; the two events land in the session vocabulary and the invariant companion. `packages/kb/kb-web` gains the four Remotes and `KbWorkbenchDoc`, appending `kb/doc-write` / `kb/doc-remove` on success. `packages/client/ui-kb-workbench` gains the team-docs block (list / read / edit / remove with the team confirmation). The keyless assembled-snapshot lane gains a docs case through the connection fixture (`kbWorkbench/listDocs` / `readDoc` / `writeDoc` / `removeDoc`); the golden re-records. Consumption surfaces are unchanged: no new tool, the read-only MCP server untouched, injection and search read cards only, and docs stay out of the reference pool. Tests: per-file 100% on every touched src file — the store doc spec, a service doc-edit spec (approval, conflict, escape, extension), the invariant spec's `kb/doc-*` cases, the kb-web spec's doc cases, the loader-composition chain (real doc write/remove through the Loader), and the client component spec's docs-block cases. Docs update: `docs/subsystems/kb.md` + zh (team-library and session-events and workbench sections), the persistence catalog + zh, the kb-core/kb-web/ui-kb-workbench READMEs + zh (the "docs are read-only for agents" limitation is replaced by the shipped workbench write), and the generated cordis catalog.
+
+Deferred with trigger conditions, recorded in the READMEs: a model-facing doc-write tool (a model authoring flow), doc creation from the workbench (a real wiki-authoring requirement), and a rename/move UI (a content-hygiene requirement).

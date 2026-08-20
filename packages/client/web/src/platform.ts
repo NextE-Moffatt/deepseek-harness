@@ -12,6 +12,7 @@ export const PLATFORM_MODULES = [
   '@deepseek-ai/dsh-client-ui-primitives',
   '@deepseek-ai/dsh-client-ui-attachment',
   '@deepseek-ai/dsh-client-schema-form',
+  'zod',
 ] as const
 
 /** One platform module specifier (a seed-table key). */

@@ -451,6 +451,7 @@ export type SessionEvent<T extends SessionEventType = SessionEventType> = {
 
 <a id="hookresult--log-only"></a>
 
+
 #### `hook/result` — log-only
 
 ```ts persistence-catalog
@@ -471,6 +472,142 @@ export type SessionEvent<T extends SessionEventType = SessionEventType> = {
 ```
 
 来源：[`packages/hooks/hook-protocol/src/types.ts:31`](../packages/hooks/hook-protocol/src/types.ts)
+
+### `kb/*`
+
+<a id="kbdoc-remove--log-only"></a>
+
+#### `kb/doc-remove` — log-only
+
+```ts persistence-catalog
+/** A team wiki document under `docs/` was removed through the web
+ * workbench; the git work tree and the explicit `kb_team_commit` retain
+ * the deleted file's history. */
+'kb/doc-remove': {
+  path: string
+}
+```
+
+来源：[`packages/kb/kb-core/src/types.ts:237`](../packages/kb/kb-core/src/types.ts)
+
+<a id="kbdoc-write--log-only"></a>
+
+#### `kb/doc-write` — log-only
+
+```ts persistence-catalog
+/** A team wiki document under `docs/` was written or overwritten through
+ * the web workbench; the file at `path` stays the content source of
+ * truth, exactly like `kb/write`. Docs never enter the reference pool. */
+'kb/doc-write': {
+  path: string
+  size: number
+}
+```
+
+来源：[`packages/kb/kb-core/src/types.ts:230`](../packages/kb/kb-core/src/types.ts)
+
+<a id="kbedit--log-only"></a>
+
+#### `kb/edit` — log-only
+
+```ts persistence-catalog
+/** A card's content was edited (the workbench or a future edit consumer):
+ * `fields` names the changed content fields; the card file at its path is
+ * the content source of truth, exactly like `kb/write`. */
+'kb/edit': {
+  id: CardId
+  library: CardLibrary
+  fields: string[]
+}
+```
+
+来源：[`packages/kb/kb-core/src/types.ts:188`](../packages/kb/kb-core/src/types.ts)
+
+<a id="kbinjected--log-only"></a>
+
+#### `kb/injected` — log-only
+
+```ts persistence-catalog
+/** One knowledge-pack injection at session start: the subscribed pack, the
+ * card ids it selected (the telemetry face), and the rendered card sections
+ * (the `kb:pack` prompt section's replayable source). */
+'kb/injected': {
+  pack: string
+  cardIds: CardId[]
+  sections: PackSection[]
+}
+```
+
+来源：[`packages/kb/kb-core/src/types.ts:199`](../packages/kb/kb-core/src/types.ts)
+
+<a id="kbpromote--log-only"></a>
+
+#### `kb/promote` — log-only
+
+```ts persistence-catalog
+/** A card's lifecycle state transitioned from `from` to `to` through the
+ * promotion state machine; `evidence` carries the optional objective signal. */
+'kb/promote': { id: CardId; from: CardStatus; to: CardStatus; evidence?: string }
+```
+
+来源：[`packages/kb/kb-core/src/types.ts:195`](../packages/kb/kb-core/src/types.ts)
+
+<a id="kbrecap--log-only"></a>
+
+#### `kb/recap` — log-only
+
+```ts persistence-catalog
+/** One recap scan recorded its checkpoint advancement: the positions
+ * appended (`scanned`, the checkpoint's rebuild face) and the listed blind
+ * spots (`blindSpots`, the surfaced queue's replayable facts; excerpts are
+ * pure functions of each referenced session's own log). */
+'kb/recap': {
+  scanDate: string
+  scanned: RecapPosition[]
+  blindSpots: RecapBlindSpot[]
+  total: number
+  listed: number
+}
+```
+
+来源：[`packages/kb/kb-core/src/types.ts:217`](../packages/kb/kb-core/src/types.ts)
+
+<a id="kbteam-join--log-only"></a>
+
+#### `kb/team-join` — log-only
+
+```ts persistence-catalog
+/** A personal card entered the team library through the first gate: the
+ * card file now lives in the team repository at `path` with `status`
+ * (always `pending`), and the promotion transition itself is the paired
+ * `kb/promote` event. */
+'kb/team-join': {
+  id: CardId
+  path: string
+  status: CardStatus
+}
+```
+
+来源：[`packages/kb/kb-core/src/types.ts:208`](../packages/kb/kb-core/src/types.ts)
+
+<a id="kbwrite--log-only"></a>
+
+#### `kb/write` — log-only
+
+```ts persistence-catalog
+/** A card file was written by `kb_write` (or re-imported with a session
+ * attached); the card is reconstructable from the file at `path`. */
+'kb/write': {
+  id: CardId
+  library: CardLibrary
+  tier: CardTier
+  status: CardStatus
+  title: string
+  path: string
+}
+```
+
+来源：[`packages/kb/kb-core/src/types.ts:177`](../packages/kb/kb-core/src/types.ts)
 
 ### `llm/*`
 

@@ -1,0 +1,39 @@
+# Agent Note: dsh-kb milestone 3 — team library, governance, and telemetry
+
+Status: implemented
+
+English | [中文](2026-08-19-dsh-kb-milestone-3.zh.md)
+
+## Problem
+
+Milestones 1 and 2 made the personal library loop and knowledge-pack injection real. Milestone 3 must make the team loop real: a shared team library that agents consume as a reference pool, governance that keeps that pool trustworthy (dual gate, quality grades, freshness, archive/revive), and consumption accounting that feeds the governance (heat). The external design fixes the product decisions: the team library is a git repository with structured cards plus document-style wiki text (long documents never enter the citation pool), the dual gate admits only verified knowledge, freshness is a scheduled 90-day-style re-verification, and consumption heat comes from the existing `kb/*` events — the session log is the fact source, never a second stream.
+
+## Decision
+
+**The team library is a git work tree at `KbConfig.teamRepoPath`, layered into `cards/` and `docs/`.** `TeamCardStore` reads and writes card files under `cards/` (no personal tiers — the L1–L4 team levels are a schema evolution, see the card-schema-versioning note), and lists/reads `docs/` separately so document-style text never enters the card list, the search index, or pack selection. Construction fails loud when the root is not a git work tree. Git operations are a thin `GitRunner` over the git CLI with an injectable exec: `status` (porcelain), `stage`, `commit`, and the work-tree assertion. Writes are working-tree drafts; `kb_team_commit` is the explicit commit — the human review point of the [git strategy decision](2026-08-19-dsh-kb-team-git-strategy.md), with the write tools routed through the approval `ask` gate (`KbConfig.teamWriteApproval`, default true) so the harness owns permissions.
+
+**The dual gate is enforced in the operation that admits, not in an advisory tool.** `evaluateGate` (pure) checks structural facts — personal draft, 来源 link, non-empty 应做 / 不应做, non-empty evidence — and returns PASS/BLOCK with reasons. `kb_gate_check` surfaces the verdict to the model; `kb_team_promote` calls the same rule and throws on BLOCK before anything is written, then moves the card into the team library as `pending` and removes the personal file, appending `kb/promote` (the transition) and `kb/team-join` (the move, with the new path). The second gate is `kb_review`: an approved review transitions team `pending → ready` (the reference pool); a rejected review changes nothing. `kb_promote` refuses team-library cards with guidance, so the promotion subset cannot bypass the review gate. `kb_archive` / `kb_revive` expose the state machine's retire/restore edges (`ready|revived → archived`, `archived → revived`) that `kb_promote` never exposed.
+
+**Quality grading is derived, never stored.** `gradeCard` maps status + expiry to the three design grades: `verified` (ready/revived inside 有效期), `pending` (draft/pending), `verify` (past 有效期 or archived). No new card field, no migration — the card schema stays as decided in the schema-versioning note.
+
+**Freshness is a pure partition plus a per-session `ctx.jobs` scheduler.** `freshnessReview` scans both libraries, attaches each card's heat from the ledger, derives the freshness position (overdue / expiring within `KbConfig.freshnessWarningDays`, default 14), and the recommendation (renew / review / archive-candidate when overdue and cold / revive-candidate when archived and hot), partitioned id-ascending and rendered as the pending-review list. The `kb_freshness` tool returns the list on demand (the tool result is the logged record). When `KbConfig.freshnessIntervalDays` is positive, `registerFreshnessSchedule` starts one owner-scoped `kb-freshness` job per session at `agent/session-start`: one immediate scan, then a daily timer counting down days (day-scale intervals exceed Node's clamped timer delay), with the rendered list buffered as job output. A configured interval without a jobs service logs one loud error per context and skips scheduling — the earliest resolvable point.
+
+**Telemetry projects heat from the session log; the ledger is the durable projection, never a second event stream.** `kb/injected`'s `cardIds` face exists for exactly this: `projectInjectedHeat` yields one `HeatEntry` per card per event, the `HeatLedger` appends them as JSONL at `KbConfig.heatPath` (default `kb/.kb-heat.jsonl`), and `aggregateHeat` produces per-card rows (count, last access, distinct sessions and packs). The live listener consumes `session/event` dispatches (`internal/dispatch`, global) and appends; a rebuild path (`writeAll` over projected logs) reproduces the ledger from session logs alone. Telemetry failures log and continue — the projection must never break the loop. The ledger feeds the freshness recommendations (archive-candidate versus renew is a heat decision) and the future revival and promotion signals.
+
+**Packs span both libraries.** `KnowledgePack` gains an optional `library` allowlist (absent selects both); selection consumes a `PackEntry` (card + optional personal tier + path) so team entries participate without a fake tier, and the tier filter never matches team entries. The session-start injection reads the personal library and, when configured, the team library; a configured but unreadable team repository logs and continues with the personal side. `kb/injected` is unchanged — the pack name, `cardIds`, and rendered sections carry team cards the same way, so the milestone-2 fold and the telemetry projection consume them with no change.
+
+## Alternatives considered
+
+**Team writes committed by the tools directly.** Rejected by the git-strategy decision: the human review point lives at the commit, and the approval gate covers the shared-content writes.
+
+**A `verify` lifecycle state for the third grade.** Rejected: the closed status set (`draft/pending/ready/archived/revived`) is the promotion pipeline's vocabulary and the invariant companion mirrors it; the design's third tier is a credibility *grade*, and deriving it from status + expiry keeps one source of truth.
+
+**Freshness scheduling through a deployment-level job with no session.** Rejected: the scan needs a workspace root (cards live per workspace), and the harness's jobs are owner-scoped; a per-session job mirrors the injection pattern and dies with its owner.
+
+**A second event stream for consumption.** Rejected outright by the design ("记账一个家"): `kb/injected` already carries the per-card face, so the ledger is a projection with a rebuild path, not a parallel record.
+
+**Automatic archive/revive transitions.** Rejected: the state machine edges belong to explicit tools; the freshness scan only *recommends* (archive-candidate / revive-candidate), and the human or model applies the transition — the design's "人只做高价值复核".
+
+## Consequences
+
+The team loop is closed in one package: promote → review → commit → pack injection → heat projection → freshness review, all replayable from the session log. Team write tools cost an approval round when `teamWriteApproval` is on and deny without an approval service; the approval story is documented in the config and the git-strategy note. Heat is per workspace in milestone 3 — cross-workspace aggregation for the team library is the web workbench's job, documented as a limitation. The freshness scheduler requires a composed jobs service; without one, the on-demand tool still works and the misconfiguration logs loudly. Team search stays personal-library-only (`kb_search` unchanged); the reference pool is reachable through `kb_team_read` and pack injection, and the unified search is the kb-search upgrade path. The `kb/team-join` event joins the generated known-vocabulary list like the other in-repo `kb/*` events, so no `ignorable` marker and no session-format bump are needed.
