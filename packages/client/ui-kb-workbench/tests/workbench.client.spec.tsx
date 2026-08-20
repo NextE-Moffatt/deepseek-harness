@@ -669,6 +669,63 @@ describe('team docs block', () => {
     expect(await screen.findByText('暂无团队文档')).toBeDefined()
   })
 
+  it('surfaces a list failure in the alert with a retry that reloads', async () => {
+    const listDocs = vi.fn(async () => ({ ok: false as const, error: { code: 'team-unconfigured', message: '团队库未配置', details: {} } }))
+    const face = injected({ listDocs })
+    renderSection(face)
+    expect(await screen.findByRole('alert')).toBeDefined()
+    expect(screen.getByText('团队库未配置')).toBeDefined()
+    // The retry reloads the list and the recovered state renders.
+    listDocs.mockResolvedValueOnce({ ok: true as const, value: [DOC] })
+    fireEvent.click(screen.getByText('重试'))
+    expect(await screen.findByText(DOC)).toBeDefined()
+  })
+
+  it('surfaces a failing read without opening a doc', async () => {
+    const face = injected({
+      readDoc: vi.fn(async () => ({ ok: false as const, error: { code: 'not-found', message: 'doc not found: docs/a.md', details: {} } })),
+    })
+    renderSection(face)
+    await screen.findByText('团队文档')
+    fireEvent.click(screen.getByText(DOC))
+    expect(await screen.findByRole('alert')).toBeDefined()
+    expect(screen.getByText('doc not found: docs/a.md')).toBeDefined()
+    expect(screen.queryByText('编辑文档')).toBeNull()
+  })
+
+  it('ignores doc clicks when the read face is absent', async () => {
+    renderSection(injected({ readDoc: undefined as never }))
+    await screen.findByText('团队文档')
+    fireEvent.click(screen.getByText(DOC))
+    expect(screen.queryByText('编辑文档')).toBeNull()
+  })
+
+  it('cancels the remove confirmation without calling removeDoc', async () => {
+    const face = injected()
+    renderSection(face)
+    await screen.findByText('团队文档')
+    fireEvent.click(screen.getByText(DOC))
+    fireEvent.click(await screen.findByText('删除文档'))
+    fireEvent.click(screen.getByText('取消'))
+    expect(face.removeDoc).not.toHaveBeenCalled()
+    expect(screen.queryByText('确认删除')).toBeNull()
+    expect(screen.getByText('删除文档')).toBeDefined()
+  })
+
+  it('surfaces a removal failure and keeps the doc open', async () => {
+    const face = injected({
+      removeDoc: vi.fn(async () => ({ ok: false as const, error: { code: 'approval', message: '团队文档删除需经审批', details: {} } })),
+    })
+    renderSection(face)
+    await screen.findByText('团队文档')
+    fireEvent.click(screen.getByText(DOC))
+    fireEvent.click(await screen.findByText('删除文档'))
+    fireEvent.click(screen.getByText('确认删除'))
+    expect(await screen.findByRole('alert')).toBeDefined()
+    expect(screen.getByText('团队文档删除需经审批')).toBeDefined()
+    expect(screen.getByText('# 架构说明')).toBeDefined()
+  })
+
   it('degrades to the loading hint when the docs faces are absent', async () => {
     renderSection(injected({
       listDocs: undefined as never, readDoc: undefined as never, writeDoc: undefined as never, removeDoc: undefined as never,

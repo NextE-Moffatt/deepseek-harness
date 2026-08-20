@@ -52,6 +52,7 @@ export type TeamDocsProps = GlobalStandardProps & {
  * @returns the docs list, read view, and edit/remove actions.
  */
 export function TeamDocs(props: TeamDocsProps): ReactNode {
+  // v8 ignore next -- the section always passes a bound t; the default only guards a direct render
   const { sessionId, t = () => '', listDocs, readDoc, writeDoc, removeDoc } = props
   const [docs, setDocs] = useState<string[] | undefined>(undefined)
   const [openDoc, setOpenDoc] = useState<KbWorkbenchDoc | undefined>(undefined)
