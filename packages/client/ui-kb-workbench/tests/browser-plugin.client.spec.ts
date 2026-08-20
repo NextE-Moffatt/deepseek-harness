@@ -62,6 +62,7 @@ describe('ui-kb-workbench browser half', () => {
   it('registers both dictionaries under its own namespace and releases them with the fiber', async () => {
     const { ctx, fiber } = await bench()
     const translate = ctx.locale.bind(NS)
+    ctx.locale.setLocale('zh')
     expect(translate('nav')).toBe(zh['nav'])
     ctx.locale.setLocale('en')
     expect(translate('nav')).toBe(en['nav'])
@@ -89,6 +90,7 @@ describe('ui-kb-workbench browser half', () => {
     const entry = ctx.slots.entries('settings.section').find(candidate => candidate.options.id === 'kb-workbench')
     expect(entry).toBeDefined()
     // The nav label thunk follows the active locale.
+    ctx.locale.setLocale('zh')
     expect(resolveSlotLabel(entry!.options.label)).toBe(zh['nav'])
     ctx.locale.setLocale('en')
     expect(resolveSlotLabel(entry!.options.label)).toBe(en['nav'])

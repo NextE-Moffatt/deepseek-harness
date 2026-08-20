@@ -45,10 +45,13 @@ function overviewShape(): string {
 
 /** Normalize the open card detail to stable text fields. */
 function detailShape(): string {
-  // The workbench detail is the last dl; its actions are the last 'actions'
-  // class group (settings chrome also carries an actions slot).
+  // The workbench detail is the last dl; its actions sit in the same detail
+  // container, because other plugin chrome (settings models, settings) also
+  // carries 'actions' groups later in the document.
   const fields = [...document.querySelectorAll('dl')].pop()
-  const actions = byClass(document, 'actions').pop()
+  const actions = fields?.parentElement === undefined
+    ? undefined
+    : byClass(fields.parentElement, 'actions').pop()
   const actionText = actions === undefined
     ? '<absent>'
     : [...actions.querySelectorAll('button')].map(button => button.textContent?.trim() ?? '').join('|')
