@@ -164,6 +164,21 @@ function validateRecap(value: unknown, fail: InvariantFailure): void {
   }
 }
 
+/** Validate a `kb/doc-write` payload: a non-empty doc path and a non-negative byte size. */
+function validateDocWrite(value: unknown, fail: InvariantFailure): void {
+  const data = value as Record<string, unknown>
+  if (typeof data['path'] !== 'string' || data['path'] === '') fail('kb/doc-write path must be a non-empty string')
+  if (typeof data['size'] !== 'number' || !Number.isInteger(data['size']) || data['size'] < 0) {
+    fail('kb/doc-write size must be a non-negative integer')
+  }
+}
+
+/** Validate a `kb/doc-remove` payload: a non-empty doc path. */
+function validateDocRemove(value: unknown, fail: InvariantFailure): void {
+  const data = value as Record<string, unknown>
+  if (typeof data['path'] !== 'string' || data['path'] === '') fail('kb/doc-remove path must be a non-empty string')
+}
+
 /* jscpd:ignore-start -- package companions share replay and dispatch plumbing */
 /** Validate the package-owned event fields and ignore unrelated events. */
 function validateEvent(event: SessionEvent, fail: InvariantFailure): void {
@@ -173,6 +188,8 @@ function validateEvent(event: SessionEvent, fail: InvariantFailure): void {
   if (event.type === 'kb/injected') validateInjected(event.data, fail)
   if (event.type === 'kb/team-join') validateTeamJoin(event.data, fail)
   if (event.type === 'kb/recap') validateRecap(event.data, fail)
+  if (event.type === 'kb/doc-write') validateDocWrite(event.data, fail)
+  if (event.type === 'kb/doc-remove') validateDocRemove(event.data, fail)
 }
 
 /** Install validation for loaded and newly appended kb events. */

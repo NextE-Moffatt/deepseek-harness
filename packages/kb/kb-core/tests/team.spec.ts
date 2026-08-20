@@ -1,8 +1,8 @@
 // Team library storage unit coverage: work-tree construction guard, cards/
 // listing (sync + async), find/write (exclusive create)/rewrite/remove, the
-// docs/ wiki layer (list + read with the escape guard), and the GitRunner's
-// work-tree assertion, status, stage, commit, and log over an injected git
-// executable.
+// docs/ wiki layer (list + read with the escape guard, and write/remove/
+// identity with the escape and .md guards), and the GitRunner's work-tree
+// assertion, status, stage, commit, and log over an injected git executable.
 import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -143,6 +143,33 @@ describe('TeamCardStore', () => {
     expect(await store.readDoc(join('docs', 'architecture.md'))).toBe('# 架构说明')
     await expect(store.readDoc('cards/rule-20260818-001.md')).rejects.toThrow(/stay inside docs/)
     await expect(store.readDoc('../secret.md')).rejects.toThrow(/stay inside docs/)
+  })
+
+  it('writes, identifies, and removes docs, enforcing the escape and .md guards', async () => {
+    const root = await tempDir('dsh-kb-team-docwrite-')
+    await mkdir(join(root, '.git'))
+    const store = new TeamCardStore(root)
+    // The identity guard fails loud on a missing doc (the overwrite-only contract).
+    await expect(store.docInfo(join('docs', 'missing.md'))).rejects.toThrow()
+    // writeDoc creates the parent directories and overwrites in place.
+    const written = await store.writeDoc(join('docs', '新人专区', 'onboarding.md'), '# 新人指南')
+    expect(written.path).toBe(join(root, 'docs', '新人专区', 'onboarding.md'))
+    expect(await store.readDoc(join('docs', '新人专区', 'onboarding.md'))).toBe('# 新人指南')
+    const identity = await store.docInfo(join('docs', '新人专区', 'onboarding.md'))
+    expect(identity.size).toBe(Buffer.byteLength('# 新人指南'))
+    await store.writeDoc(join('docs', '新人专区', 'onboarding.md'), '# 更新的新人指南')
+    expect(await store.readDoc(join('docs', '新人专区', 'onboarding.md'))).toBe('# 更新的新人指南')
+    // The write operations refuse escapes and non-.md paths.
+    await expect(store.writeDoc('cards/rule-20260818-001.md', 'x')).rejects.toThrow(/stay inside docs/)
+    await expect(store.writeDoc('../secret.md', 'x')).rejects.toThrow(/stay inside docs/)
+    await expect(store.writeDoc(join('docs', 'notes.txt'), 'x')).rejects.toThrow(/end in \.md/)
+    await expect(store.docInfo(join('docs', 'notes.txt'))).rejects.toThrow(/end in \.md/)
+    // removeDoc deletes and fails loud on a second delete.
+    await store.removeDoc(join('docs', '新人专区', 'onboarding.md'))
+    expect(await store.listDocs()).toEqual([])
+    await expect(store.docInfo(join('docs', '新人专区', 'onboarding.md'))).rejects.toThrow()
+    await expect(store.removeDoc(join('docs', '新人专区', 'onboarding.md'))).rejects.toThrow()
+    await expect(store.removeDoc('cards/rule-20260818-001.md')).rejects.toThrow(/stay inside docs/)
   })
 
   it('fails loud when cards/ is not a directory and when a card path is a directory', async () => {

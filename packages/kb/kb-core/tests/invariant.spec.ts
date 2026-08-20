@@ -46,6 +46,8 @@ describe('kb event invariants', () => {
       total: 1,
       listed: 1,
     })
+    session.append('kb/doc-write', { path: 'docs/architecture.md', size: 1024 })
+    session.append('kb/doc-remove', { path: 'docs/architecture.md' })
     await ctx.plugin(KbInvariant)
   })
 
@@ -87,6 +89,10 @@ describe('kb event invariants', () => {
     ['kb/recap blank consumed item', 'kb/recap', { scanDate: '2026-08-19', scanned: [], blindSpots: [{ sessionId: 's', at: 'a', consumed: [''] }], total: 0, listed: 0 }, /blindSpots consumed must be an array of non-empty strings/],
     ['kb/recap negative total', 'kb/recap', { scanDate: '2026-08-19', scanned: [], blindSpots: [], total: -1, listed: 0 }, /total must be a non-negative integer/],
     ['kb/recap negative listed', 'kb/recap', { scanDate: '2026-08-19', scanned: [], blindSpots: [], total: 0, listed: -1 }, /listed must be a non-negative integer/],
+    ['kb/doc-write blank path', 'kb/doc-write', { path: '', size: 1 }, /path must be a non-empty string/],
+    ['kb/doc-write negative size', 'kb/doc-write', { path: 'docs/a.md', size: -1 }, /size must be a non-negative integer/],
+    ['kb/doc-write non-integer size', 'kb/doc-write', { path: 'docs/a.md', size: 1.5 }, /size must be a non-negative integer/],
+    ['kb/doc-remove blank path', 'kb/doc-remove', { path: '' }, /path must be a non-empty string/],
   ])('rejects %s', async (_name, type, data, message) => {
     const ctx = await setup()
     expect(() => { ctx.emit('session/event', {} as Session, event(type as SessionEvent['type'], data)) }).toThrow(message)

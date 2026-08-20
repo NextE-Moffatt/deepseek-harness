@@ -166,9 +166,12 @@ export interface CardEditPatch {
  * injection, carrying the full rendered content so the `kb:pack` prompt
  * section replays from the log alone; `kb/recap` records one recap scan's
  * checkpoint advancement (the listed blind spots and their recorded positions)
- * so the recap queue replays from the log alone. Tools append these after the
- * underlying file operation succeeds; the injection listener appends
- * `kb/injected` synchronously at `agent/session-start`.
+ * so the recap queue replays from the log alone; `kb/doc-write` and
+ * `kb/doc-remove` record a human workbench write or removal of a team wiki
+ * document (docs never enter the reference pool — the events are session
+ * facts, like `kb/edit`). Tools append these after the underlying file
+ * operation succeeds; the injection listener appends `kb/injected`
+ * synchronously at `agent/session-start`.
  */
 declare module '@deepseek-ai/dsh-session/types' {
   interface SessionEventMap {
@@ -220,6 +223,19 @@ declare module '@deepseek-ai/dsh-session/types' {
       blindSpots: RecapBlindSpot[]
       total: number
       listed: number
+    }
+    /** A team wiki document under `docs/` was written or overwritten through
+     * the web workbench; the file at `path` stays the content source of
+     * truth, exactly like `kb/write`. Docs never enter the reference pool. */
+    'kb/doc-write': {
+      path: string
+      size: number
+    }
+    /** A team wiki document under `docs/` was removed through the web
+     * workbench; the git work tree and the explicit `kb_team_commit` retain
+     * the deleted file's history. */
+    'kb/doc-remove': {
+      path: string
     }
   }
 }

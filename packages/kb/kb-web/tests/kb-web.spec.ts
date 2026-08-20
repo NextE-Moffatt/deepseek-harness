@@ -22,6 +22,8 @@ import type { FreshnessReview, HeatRow } from '@deepseek-ai/dsh-kb-core'
 const CARD = 'rule-20260818-001'
 const OTHER_CARD = 'rule-20260818-002'
 const WORKSPACE_SESSION = SessionId('kb-web-workspace-session')
+const DOC = 'docs/architecture.md'
+const NESTED_DOC = 'docs/新人专区/onboarding.md'
 
 const freshness: FreshnessReview = {
   overdue: [{
@@ -62,6 +64,11 @@ interface KbMocks {
   reviveTeam: ReturnType<typeof vi.fn>
   reviewTeam: ReturnType<typeof vi.fn>
   editCard: ReturnType<typeof vi.fn>
+  listTeamDocs: ReturnType<typeof vi.fn>
+  readTeamDoc: ReturnType<typeof vi.fn>
+  teamDocInfo: ReturnType<typeof vi.fn>
+  writeTeamDoc: ReturnType<typeof vi.fn>
+  removeTeamDoc: ReturnType<typeof vi.fn>
 }
 
 /** Build a stubbed kb service exposing the workbench's call surface. */
@@ -86,6 +93,11 @@ function kbLike(overrides: Partial<KbService> = {}): { kb: KbService; mocks: KbM
       path: '/ws/kb/cards/P2/x.md',
       fields: ['title'],
     })),
+    listTeamDocs: vi.fn(async () => [DOC, NESTED_DOC]),
+    readTeamDoc: vi.fn(async () => '# 架构说明'),
+    teamDocInfo: vi.fn(async () => ({ path: DOC, mtime: 1, size: 11 })),
+    writeTeamDoc: vi.fn(async () => ({ path: DOC, mtime: 2, size: 22 })),
+    removeTeamDoc: vi.fn(async () => ({ path: DOC })),
   }
   const kb = { config: { recapPath: 'kb/.kb-recap.jsonl' }, ...mocks, ...overrides } as unknown as KbService
   return { kb, mocks }
@@ -330,5 +342,46 @@ describe('edit', () => {
     mocks.editCard.mockRejectedValueOnce(new Error('卡片已被其他会话修改，请刷新后重试（x）'))
     await expect(ctx.kbWorkbench.edit(session, CARD, { title: '新标题' })).rejects.toThrow(/已被其他会话修改/)
     expect(session.events.some(event => event.type === 'kb/edit')).toBe(false)
+  })
+})
+
+describe('team docs', () => {
+  it('lists the wiki documents and reads one with its identity', async () => {
+    const { ctx, session, mocks } = await harness()
+    expect(await ctx.kbWorkbench.listDocs(session)).toEqual([DOC, NESTED_DOC])
+    mocks.readTeamDoc.mockResolvedValueOnce('# 更新的架构说明')
+    mocks.teamDocInfo.mockResolvedValueOnce({ path: DOC, mtime: 9, size: 99 })
+    const view = await ctx.kbWorkbench.readDoc(session, DOC)
+    expect(view).toEqual({ path: DOC, content: '# 更新的架构说明', mtime: 9, size: 99 })
+    expect(mocks.readTeamDoc).toHaveBeenCalledWith(expect.any(String), DOC)
+  })
+
+  it('writes a doc, appends kb/doc-write, and returns the refreshed view', async () => {
+    const { ctx, session, mocks } = await harness()
+    mocks.writeTeamDoc.mockResolvedValueOnce({ path: DOC, mtime: 2, size: 22 })
+    const view = await ctx.kbWorkbench.writeDoc(session, DOC, '# 新内容', { approved: true })
+    expect(mocks.writeTeamDoc).toHaveBeenCalledWith(expect.any(String), DOC, '# 新内容', { approved: true })
+    expect(view.path).toBe(DOC)
+    const event = session.events.find(candidate => candidate.type === 'kb/doc-write')
+    expect(event?.data).toEqual({ path: DOC, size: 22 })
+  })
+
+  it('removes a doc, appends kb/doc-remove, and passes the approval through', async () => {
+    const { ctx, session, mocks } = await harness()
+    const removed = await ctx.kbWorkbench.removeDoc(session, DOC, { approved: true })
+    expect(mocks.removeTeamDoc).toHaveBeenCalledWith(expect.any(String), DOC, { approved: true })
+    expect(removed).toEqual({ path: DOC })
+    const event = session.events.find(candidate => candidate.type === 'kb/doc-remove')
+    expect(event?.data).toEqual({ path: DOC })
+  })
+
+  it('surfaces a write conflict or a denied approval without appending an event', async () => {
+    const { ctx, session, mocks } = await harness()
+    mocks.writeTeamDoc.mockRejectedValueOnce(new Error('团队文档写入需经审批（KbConfig.teamWriteApproval）：docs/a.md'))
+    await expect(ctx.kbWorkbench.writeDoc(session, DOC, 'x')).rejects.toThrow(/需经审批/)
+    expect(session.events.some(event => event.type === 'kb/doc-write')).toBe(false)
+    mocks.writeTeamDoc.mockRejectedValueOnce(new Error('文档已被其他会话修改，请刷新后重试（docs/a.md）'))
+    await expect(ctx.kbWorkbench.writeDoc(session, DOC, 'x')).rejects.toThrow(/已被其他会话修改/)
+    expect(session.events.some(event => event.type === 'kb/doc-write')).toBe(false)
   })
 })

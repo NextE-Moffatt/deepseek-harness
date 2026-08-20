@@ -12,7 +12,7 @@
 
 import { mkdir, open, readFile, readdir, rm, stat, writeFile } from 'node:fs/promises'
 import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs'
-import { join, relative, resolve, sep } from 'node:path'
+import { dirname, join, relative, resolve, sep } from 'node:path'
 import { parseCard, serializeCard } from './card.ts'
 import type { Card, CardId } from './types.ts'
 
@@ -220,11 +220,63 @@ export class TeamCardStore {
    * @returns the document text.
    */
   async readDoc(docPath: string): Promise<string> {
+    const resolved = this.resolveDocPath(docPath, false)
+    return readFile(resolved, 'utf8')
+  }
+
+  /**
+   * The identity of one wiki document (mtime + size), the optimistic conflict
+   * guard's expected values. Fails loud when the doc is missing.
+   * @param docPath - the repository-relative doc path (`docs/...`).
+   * @returns the file identity.
+   */
+  async docInfo(docPath: string): Promise<{ mtime: number; size: number }> {
+    const info = await stat(this.resolveDocPath(docPath, true))
+    return { mtime: info.mtimeMs, size: info.size }
+  }
+
+  /**
+   * Write (create the parent directory and overwrite) one wiki document. The
+   * path must stay inside `docs/` and end in `.md`, so every doc the store
+   * writes is listable by {@link listDocs}.
+   * @param docPath - the repository-relative doc path (`docs/...`).
+   * @param content - the document text.
+   * @returns the absolute path written and the file identity after the write.
+   */
+  async writeDoc(docPath: string, content: string): Promise<{ path: string; mtime: number; size: number }> {
+    const resolved = this.resolveDocPath(docPath, true)
+    await mkdir(dirname(resolved), { recursive: true })
+    await writeFile(resolved, content, 'utf8')
+    const info = await stat(resolved)
+    return { path: resolved, mtime: info.mtimeMs, size: info.size }
+  }
+
+  /**
+   * Remove one wiki document, failing loud when it does not exist (a stale
+   * delete is an error the caller surfaces, not a silent success).
+   * @param docPath - the repository-relative doc path (`docs/...`).
+   */
+  async removeDoc(docPath: string): Promise<void> {
+    const resolved = this.resolveDocPath(docPath, true)
+    await rm(resolved, { force: false })
+  }
+
+  /**
+   * Resolve one repository-relative doc path, refusing paths that escape
+   * `docs/` and — for the write operations — paths without a `.md` extension.
+   * @param docPath - the repository-relative doc path (`docs/...`).
+   * @param requireMarkdown - whether a `.md` extension is required.
+   * @returns the absolute path.
+   */
+  private resolveDocPath(docPath: string, requireMarkdown: boolean): string {
     const resolved = resolve(this.repoRoot, docPath)
     const prefix = `${resolve(this.repoRoot, 'docs')}${sep}`
     if (!resolved.startsWith(prefix)) {
       throw new Error(`doc path must stay inside docs/, got ${JSON.stringify(docPath)}`)
     }
-    return readFile(resolved, 'utf8')
+    if (requireMarkdown && !docPath.endsWith('.md')) {
+      throw new Error(`doc path must end in .md, got ${JSON.stringify(docPath)}`)
+    }
+    return resolved
   }
 }

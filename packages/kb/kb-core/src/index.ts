@@ -310,6 +310,26 @@ export interface CardEditResult {
   fields: string[]
 }
 
+/** Write options for a team doc: the optimistic identity and the team approval signal. */
+export interface TeamDocWriteOptions {
+  /** Expected on-disk file identity (mtime ms + size) observed when the doc
+   * was read; a mismatch fails the write with a conflict error. */
+  expected?: { mtime: number; size: number }
+  /** Explicit approval for the team write when `KbConfig.teamWriteApproval`
+   * is true — the human workbench's approval signal carried with the operation. */
+  approved?: boolean
+}
+
+/** The outcome of a team doc write. */
+export interface TeamDocWriteResult {
+  /** The repository-relative doc path (`docs/...`). */
+  path: string
+  /** File mtime in epoch milliseconds after the write. */
+  mtime: number
+  /** File size in bytes after the write. */
+  size: number
+}
+
 /**
  * `ctx.kb`: owns the personal library seam — card write/read, promotion,
  * search, and incremental ingest — plus the milestone-1 tools and the
@@ -713,6 +733,68 @@ export class KbService extends Service {
    */
   async readTeamDoc(root: string, docPath: string): Promise<string> {
     return this.teamStore(root).readDoc(docPath)
+  }
+
+  /**
+   * The identity of one wiki document (mtime + size), the write conflict
+   * guard's expected values. Fails loud when the doc is missing or escapes
+   * `docs/`.
+   * @param root - the session workspace root.
+   * @param docPath - the repository-relative doc path (`docs/...`).
+   * @returns the repository-relative path and the file identity.
+   */
+  async teamDocInfo(root: string, docPath: string): Promise<{ path: string; mtime: number; size: number }> {
+    const info = await this.teamStore(root).docInfo(docPath)
+    return { path: docPath, ...info }
+  }
+
+  /**
+   * Write (overwrite) one team wiki document: refuse paths that escape `docs/`
+   * or lack a `.md` extension, guard against concurrent modification via the
+   * expected file identity, and require `options.approved` when
+   * `KbConfig.teamWriteApproval` is set (docs live only in the team library).
+   * The caller (workbench) appends `kb/doc-write` after the write succeeds.
+   * @param root - the session workspace root.
+   * @param docPath - the repository-relative doc path (`docs/...`).
+   * @param content - the document text (non-empty).
+   * @param options - the optimistic guard and the team approval signal.
+   * @returns the repository-relative path and the file identity after the write.
+   */
+  async writeTeamDoc(root: string, docPath: string, content: string, options?: TeamDocWriteOptions): Promise<TeamDocWriteResult> {
+    const store = this.teamStore(root)
+    if (typeof content !== 'string' || content.trim() === '') {
+      throw new Error(`team doc content must be a non-empty string, got ${JSON.stringify(content)}`)
+    }
+    const current = await store.docInfo(docPath)
+    const expected = options?.expected
+    if (expected !== undefined && (current.mtime !== expected.mtime || current.size !== expected.size)) {
+      throw new Error(`文档已被其他会话修改，请刷新后重试（${docPath}）`)
+    }
+    if (this.config.teamWriteApproval && options?.approved !== true) {
+      throw new Error(`团队文档写入需经审批（KbConfig.teamWriteApproval）：${docPath}`)
+    }
+    const written = await store.writeDoc(docPath, content)
+    return { path: docPath, mtime: written.mtime, size: written.size }
+  }
+
+  /**
+   * Remove one team wiki document: refuse paths that escape `docs/` or lack a
+   * `.md` extension, require `options.approved` when `KbConfig.teamWriteApproval`
+   * is set, and fail loud when the doc is already gone. The caller (workbench)
+   * appends `kb/doc-remove` after the removal succeeds; the git work tree
+   * retains the deleted file's history through `kb_team_commit`.
+   * @param root - the session workspace root.
+   * @param docPath - the repository-relative doc path (`docs/...`).
+   * @param options - the team approval signal.
+   * @returns the repository-relative path removed.
+   */
+  async removeTeamDoc(root: string, docPath: string, options?: TeamDocWriteOptions): Promise<{ path: string }> {
+    const store = this.teamStore(root)
+    if (this.config.teamWriteApproval && options?.approved !== true) {
+      throw new Error(`团队文档删除需经审批（KbConfig.teamWriteApproval）：${docPath}`)
+    }
+    await store.removeDoc(docPath)
+    return { path: docPath }
   }
 
   /**

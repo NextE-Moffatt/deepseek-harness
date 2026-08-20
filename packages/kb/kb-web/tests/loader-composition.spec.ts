@@ -6,7 +6,7 @@
  * asserting the card files, the `kb/*` session events, and the log replay.
  */
 import { execFile } from 'node:child_process'
-import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { promisify } from 'node:util'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -235,6 +235,43 @@ describe('kb workbench through the Loader composition', () => {
     ])
     const replayed = Session.create(SessionId('replay'), workbench.events)
     expect(replayed.events.filter(event => event.type === 'kb/edit').length).toBe(2)
+  })
+
+  it('lists, reads, writes, and removes team docs through the Remote with gated events', async () => {
+    const ctx = await boot()
+    const service = ctx.get('kbWorkbench') as KbWorkbenchService
+    await mkdir(join(teamRepo!, 'docs'), { recursive: true })
+    await writeFile(join(teamRepo!, 'docs', 'architecture.md'), '# 架构说明', 'utf8')
+    const workbench = ctx.sessions.create(SessionId('workbench-docs'), { meta: { cwd: workspace! } })
+    const doc = join('docs', 'architecture.md')
+
+    expect(await service.listDocs(workbench)).toEqual([doc])
+    const read = await service.readDoc(workbench, doc)
+    expect(read).toMatchObject({ path: doc, content: '# 架构说明', size: Buffer.byteLength('# 架构说明') })
+
+    // The write is approval-gated under the default teamWriteApproval.
+    await expect(service.writeDoc(workbench, doc, '# 新内容')).rejects.toThrow(/需经审批/)
+    const written = await service.writeDoc(workbench, doc, '# 新内容', { approved: true })
+    expect(written.content).toBe('# 新内容')
+    expect(await readFile(join(teamRepo!, 'docs', 'architecture.md'), 'utf8')).toBe('# 新内容')
+    expect(workbench.events.find(event => event.type === 'kb/doc-write')?.data).toEqual({
+      path: doc, size: Buffer.byteLength('# 新内容'),
+    })
+
+    // The optimistic identity guard rejects a stale expected identity.
+    await expect(service.writeDoc(workbench, doc, '并发内容', { expected: { mtime: 1, size: 1 }, approved: true }))
+      .rejects.toThrow(/已被其他会话修改/)
+
+    // Removal is gated and leaves the list empty; the event records the path.
+    const removed = await service.removeDoc(workbench, doc, { approved: true })
+    expect(removed).toEqual({ path: doc })
+    expect(await service.listDocs(workbench)).toEqual([])
+    expect(workbench.events.find(event => event.type === 'kb/doc-remove')?.data).toEqual({ path: doc })
+
+    // The log alone rebuilds both doc events.
+    const replayed = Session.create(SessionId('replay-docs'), workbench.events)
+    expect(replayed.events.filter(event => event.type === 'kb/doc-write')).toHaveLength(1)
+    expect(replayed.events.filter(event => event.type === 'kb/doc-remove')).toHaveLength(1)
   })
 
   it('refuses invalid config at load', async () => {

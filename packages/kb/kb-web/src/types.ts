@@ -93,3 +93,23 @@ export interface KbWorkbenchEditOptions {
   /** Explicit approval for a team-card edit under `KbConfig.teamWriteApproval`. */
   readonly approved?: boolean
 }
+
+/** One team wiki document as the workbench renders it. */
+export interface KbWorkbenchDoc {
+  /** The repository-relative doc path (`docs/...`). */
+  readonly path: string
+  /** The document text. */
+  readonly content: string
+  /** File mtime in epoch milliseconds, the write conflict guard's expected identity. */
+  readonly mtime: number
+  /** File size in bytes, the write conflict guard's expected identity. */
+  readonly size: number
+}
+
+/** The doc write/remove request options: the optimistic identity and the team approval signal. */
+export interface KbWorkbenchDocOptions {
+  /** Expected on-disk identity observed at detail load; a mismatch fails the write. */
+  readonly expected?: { mtime: number; size: number }
+  /** Explicit approval for a team write under `KbConfig.teamWriteApproval`. */
+  readonly approved?: boolean
+}

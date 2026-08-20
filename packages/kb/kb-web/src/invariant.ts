@@ -15,11 +15,12 @@ export const name = 'kb-web-invariant'
 export const inject = ['invariants']
 
 /**
- * No runtime invariant: every `kb/promote` event this service appends is
- * validated against the shared state machine by the `@deepseek-ai/dsh-kb-core`
- * companion (the transition table is kb-core's), and every read-side payload
- * is a projection of kb-core's own derived files (heat ledger, recap
- * checkpoint, card files).
+ * No runtime invariant: every `kb/promote`, `kb/edit`, `kb/doc-write`, and
+ * `kb/doc-remove` event this service appends is validated by the
+ * `@deepseek-ai/dsh-kb-core` companion (the transition table, the edit patch
+ * contract, and the doc-write payloads are kb-core's), and every read-side
+ * payload is a projection of kb-core's own derived files (heat ledger, recap
+ * checkpoint, card and doc files).
  */
 const install: InvariantInstaller = () => {}
 

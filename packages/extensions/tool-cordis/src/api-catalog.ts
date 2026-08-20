@@ -908,6 +908,24 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
         returns: 'the document text.',
       },
       {
+        signature: 'async teamDocInfo(root: string, docPath: string): Promise<{ path: string; mtime: number; size: number }>',
+        description: 'The identity of one wiki document (mtime + size), the write conflict guard\'s expected values. Fails loud when the doc is missing or escapes `docs/`.',
+        parameters: [{ name: 'root', description: 'the session workspace root.' }, { name: 'docPath', description: 'the repository-relative doc path (`docs/...`).' }],
+        returns: 'the repository-relative path and the file identity.',
+      },
+      {
+        signature: 'async writeTeamDoc(root: string, docPath: string, content: string, options?: TeamDocWriteOptions): Promise<TeamDocWriteResult>',
+        description: 'Write (overwrite) one team wiki document: refuse paths that escape `docs/` or lack a `.md` extension, guard against concurrent modification via the expected file identity, and require `options.approved` when `KbConfig.teamWriteApproval` is set (docs live only in the team library). The caller (workbench) appends `kb/doc-write` after the write succeeds.',
+        parameters: [{ name: 'root', description: 'the session workspace root.' }, { name: 'docPath', description: 'the repository-relative doc path (`docs/...`).' }, { name: 'content', description: 'the document text (non-empty).' }, { name: 'options', description: 'the optimistic guard and the team approval signal.' }],
+        returns: 'the repository-relative path and the file identity after the write.',
+      },
+      {
+        signature: 'async removeTeamDoc(root: string, docPath: string, options?: TeamDocWriteOptions): Promise<{ path: string }>',
+        description: 'Remove one team wiki document: refuse paths that escape `docs/` or lack a `.md` extension, require `options.approved` when `KbConfig.teamWriteApproval` is set, and fail loud when the doc is already gone. The caller (workbench) appends `kb/doc-remove` after the removal succeeds; the git work tree retains the deleted file\'s history through `kb_team_commit`.',
+        parameters: [{ name: 'root', description: 'the session workspace root.' }, { name: 'docPath', description: 'the repository-relative doc path (`docs/...`).' }, { name: 'options', description: 'the team approval signal.' }],
+        returns: 'the repository-relative path removed.',
+      },
+      {
         signature: 'async heat(root: string): Promise<HeatRow[]>',
         description: 'The workspace\'s aggregated heat ledger: which cards were consumed by which sessions, projected from `kb/injected` events (see HeatLedger).',
         parameters: [{ name: 'root', description: 'the session workspace root.' }],
@@ -929,8 +947,8 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
   },
   {
     key: 'kbWorkbench',
-    summary: '`ctx.kbWorkbench`: owns the web governance workbench seam — merged pending-review views, card reads, flywheel metrics, and lifecycle actions over `ctx.kb`.',
-    description: '`ctx.kbWorkbench`: owns the web governance workbench seam — merged pending-review views, card reads, flywheel metrics, and lifecycle actions over `ctx.kb`. Every Remote method takes the session first; the workspace root derives from `session.header.cwd`.',
+    summary: '`ctx.kbWorkbench`: owns the web governance workbench seam — merged pending-review views, card reads, flywheel metrics, lifecycle actions, and the team wiki docs face over `ctx.kb`.',
+    description: '`ctx.kbWorkbench`: owns the web governance workbench seam — merged pending-review views, card reads, flywheel metrics, lifecycle actions, and the team wiki docs face over `ctx.kb`. Every Remote method takes the session first; the workspace root derives from `session.header.cwd`.',
     methods: [
       {
         signature: 'readonly config: ResolvedKbWebConfig',
@@ -955,6 +973,31 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
         description: 'The content-edit action: apply the patch through `KbService.editCard` (conflict-guarded, team-gated) and append `kb/edit` to the workbench session\'s log when the edit changed anything. The card file stays the content source of truth, exactly like `kb_write`\'s `kb/write` event.',
         parameters: [{ name: 'session', description: 'the workbench session (its cwd is the workspace root).' }, { name: 'id', description: 'the card id.' }, { name: 'patch', description: 'the content-field patch.' }, { name: 'options', description: 'the expected file identity and the team approval signal.' }],
         returns: 'the refreshed card view.',
+      },
+      {
+        signature: '@Remote(\'listDocs\') async listDocs(session: Session): Promise<string[]>',
+        description: 'The team wiki documents under the team library\'s `docs/`.',
+        parameters: [{ name: 'session', description: 'the workbench session (its cwd is the workspace root).' }],
+        returns: 'the sorted repository-relative doc paths.',
+      },
+      {
+        signature: '@Remote(\'readDoc\') async readDoc(session: Session, docPath: string): Promise<KbWorkbenchDoc>',
+        description: 'Read one team wiki document with the file identity the write conflict guard expects.',
+        parameters: [{ name: 'session', description: 'the workbench session (its cwd is the workspace root).' }, { name: 'docPath', description: 'the repository-relative doc path (`docs/...`).' }],
+        returns: 'the document view.',
+        throws: ['when the path escapes `docs/` or the doc is missing.'],
+      },
+      {
+        signature: '@Remote(\'writeDoc\') async writeDoc(session: Session, docPath: string, content: string, options?: KbWorkbenchDocOptions): Promise<KbWorkbenchDoc>',
+        description: 'The team-doc write action: overwrite through `KbService.writeTeamDoc` (conflict-guarded, team-gated) and append `kb/doc-write` to the workbench session\'s log. The doc file stays the content source of truth; docs never enter the reference pool.',
+        parameters: [{ name: 'session', description: 'the workbench session (its cwd is the workspace root).' }, { name: 'docPath', description: 'the repository-relative doc path (`docs/...`).' }, { name: 'content', description: 'the document text.' }, { name: 'options', description: 'the expected file identity and the team approval signal.' }],
+        returns: 'the refreshed document view.',
+      },
+      {
+        signature: '@Remote(\'removeDoc\') async removeDoc(session: Session, docPath: string, options?: KbWorkbenchDocOptions): Promise<{ path: string }>',
+        description: 'The team-doc remove action: delete through `KbService.removeTeamDoc` (team-gated) and append `kb/doc-remove` to the workbench session\'s log; the git work tree and the explicit `kb_team_commit` retain history.',
+        parameters: [{ name: 'session', description: 'the workbench session (its cwd is the workspace root).' }, { name: 'docPath', description: 'the repository-relative doc path (`docs/...`).' }, { name: 'options', description: 'the team approval signal.' }],
+        returns: 'the removed repository-relative doc path.',
       },
       {
         signature: '@Remote(\'promote\') async promote(session: Session, id: string, target: CardStatus, evidence?: string): Promise<{ card: Card from: CardStatus to: CardStatus path: string evidence?: string }>',
@@ -3529,6 +3572,14 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export interface KbWorkbenchCard {\n    readonly library: CardLibrary;\n    readonly card: Card;\n    readonly tier: string;\n    readonly path: string;\n    readonly grade: CardGrade;\n    readonly mtime: number;\n    readonly size: number;\n}',
   },
   {
+    name: 'KbWorkbenchDoc',
+    declaration: 'export interface KbWorkbenchDoc {\n    readonly path: string;\n    readonly content: string;\n    readonly mtime: number;\n    readonly size: number;\n}',
+  },
+  {
+    name: 'KbWorkbenchDocOptions',
+    declaration: 'export interface KbWorkbenchDocOptions {\n    readonly expected?: {\n        mtime: number;\n        size: number;\n    };\n    readonly approved?: boolean;\n}',
+  },
+  {
     name: 'KbWorkbenchEditOptions',
     declaration: 'export interface KbWorkbenchEditOptions {\n    readonly expected?: {\n        mtime: number;\n        size: number;\n    };\n    readonly approved?: boolean;\n}',
   },
@@ -4587,6 +4638,14 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'TeamCardFileInfo',
     declaration: 'export interface TeamCardFileInfo {\n    card: Card;\n    path: string;\n    mtime: number;\n    size: number;\n}',
+  },
+  {
+    name: 'TeamDocWriteOptions',
+    declaration: 'export interface TeamDocWriteOptions {\n    expected?: {\n        mtime: number;\n        size: number;\n    };\n    approved?: boolean;\n}',
+  },
+  {
+    name: 'TeamDocWriteResult',
+    declaration: 'export interface TeamDocWriteResult {\n    path: string;\n    mtime: number;\n    size: number;\n}',
   },
   {
     name: 'TerminalBackend',

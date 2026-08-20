@@ -1,10 +1,11 @@
 /**
  * `ctx.kbWorkbench`: the web governance workbench host half — a Remote service
  * exposing one workspace's merged pending-review list (freshness + recap blind
- * spots), full card details, the flywheel metrics, and the lifecycle actions
- * (promote / archive / revive / review) that drive the existing `ctx.kb`
- * semantics and append the same `kb/*` events the tools append to the
- * workbench session's own log. The browser half is
+ * spots), full card details, the flywheel metrics, the lifecycle actions
+ * (promote / archive / revive / review), the card-content edit, and the team
+ * wiki docs face (list / read / write / remove). Every action drives the
+ * existing `ctx.kb` semantics and appends the same `kb/*` events the tools
+ * append to the workbench session's own log. The browser half is
  * `@deepseek-ai/dsh-client-ui-kb-workbench`.
  * @module @deepseek-ai/dsh-kb-web
  */
@@ -20,7 +21,8 @@ import type {
   Card, CardId, CardStatus, FreshnessReview, HeatRow, RecapSessionLog,
 } from '@deepseek-ai/dsh-kb-core'
 import type {
-  KbBlindSpotView, KbFlywheelMetrics, KbTopHeatEntry, KbWorkbenchCard, KbWorkbenchEditOptions, KbWorkbenchEditPatch, KbWorkbenchOverview,
+  KbBlindSpotView, KbFlywheelMetrics, KbTopHeatEntry, KbWorkbenchCard,
+  KbWorkbenchDoc, KbWorkbenchDocOptions, KbWorkbenchEditOptions, KbWorkbenchEditPatch, KbWorkbenchOverview,
 } from './types.ts'
 
 export type * from './types.ts'
@@ -92,9 +94,9 @@ function countPromotions(logs: readonly RecapSessionLog[]): number {
 
 /**
  * `ctx.kbWorkbench`: owns the web governance workbench seam — merged
- * pending-review views, card reads, flywheel metrics, and lifecycle actions
- * over `ctx.kb`. Every Remote method takes the session first; the workspace
- * root derives from `session.header.cwd`.
+ * pending-review views, card reads, flywheel metrics, lifecycle actions, and
+ * the team wiki docs face over `ctx.kb`. Every Remote method takes the session
+ * first; the workspace root derives from `session.header.cwd`.
  */
 export class KbWorkbenchService extends TypertRemoteService {
   static inject = ['kb']
@@ -262,6 +264,68 @@ export class KbWorkbenchService extends TypertRemoteService {
       session.append('kb/edit', { id: result.card.id, library: result.library, fields: result.fields })
     }
     return this.card(session, id)
+  }
+
+  /**
+   * The team wiki documents under the team library's `docs/`.
+   * @param session - the workbench session (its cwd is the workspace root).
+   * @returns the sorted repository-relative doc paths.
+   */
+  @Remote('listDocs')
+  async listDocs(session: Session): Promise<string[]> {
+    return this.ctx.kb.listTeamDocs(this.requireRoot(session))
+  }
+
+  /**
+   * Read one team wiki document with the file identity the write conflict
+   * guard expects.
+   * @param session - the workbench session (its cwd is the workspace root).
+   * @param docPath - the repository-relative doc path (`docs/...`).
+   * @returns the document view.
+   * @throws when the path escapes `docs/` or the doc is missing.
+   */
+  @Remote('readDoc')
+  async readDoc(session: Session, docPath: string): Promise<KbWorkbenchDoc> {
+    const root = this.requireRoot(session)
+    const content = await this.ctx.kb.readTeamDoc(root, docPath)
+    const info = await this.ctx.kb.teamDocInfo(root, docPath)
+    return { path: info.path, content, mtime: info.mtime, size: info.size }
+  }
+
+  /**
+   * The team-doc write action: overwrite through `KbService.writeTeamDoc`
+   * (conflict-guarded, team-gated) and append `kb/doc-write` to the workbench
+   * session's log. The doc file stays the content source of truth; docs never
+   * enter the reference pool.
+   * @param session - the workbench session (its cwd is the workspace root).
+   * @param docPath - the repository-relative doc path (`docs/...`).
+   * @param content - the document text.
+   * @param options - the expected file identity and the team approval signal.
+   * @returns the refreshed document view.
+   */
+  @Remote('writeDoc')
+  async writeDoc(session: Session, docPath: string, content: string, options?: KbWorkbenchDocOptions): Promise<KbWorkbenchDoc> {
+    const root = this.requireRoot(session)
+    const written = await this.ctx.kb.writeTeamDoc(root, docPath, content, options)
+    session.append('kb/doc-write', { path: written.path, size: written.size })
+    return this.readDoc(session, docPath)
+  }
+
+  /**
+   * The team-doc remove action: delete through `KbService.removeTeamDoc`
+   * (team-gated) and append `kb/doc-remove` to the workbench session's log;
+   * the git work tree and the explicit `kb_team_commit` retain history.
+   * @param session - the workbench session (its cwd is the workspace root).
+   * @param docPath - the repository-relative doc path (`docs/...`).
+   * @param options - the team approval signal.
+   * @returns the removed repository-relative doc path.
+   */
+  @Remote('removeDoc')
+  async removeDoc(session: Session, docPath: string, options?: KbWorkbenchDocOptions): Promise<{ path: string }> {
+    const root = this.requireRoot(session)
+    const removed = await this.ctx.kb.removeTeamDoc(root, docPath, options)
+    session.append('kb/doc-remove', { path: removed.path })
+    return removed
   }
 
   /**
