@@ -68,4 +68,43 @@ describe('fixture kbWorkbench remote', () => {
       title: '编辑后的标题', 标签: ['告警', '值班'],
     })
   })
+
+  it('serves the team docs list and reads one with its identity', async () => {
+    const result = await kbRpc('kbWorkbench/listDocs', {})
+    expect(result.ok).toBe(true)
+    expect(result.value).toEqual(['docs/architecture.md', 'docs/onboarding.md'])
+    const read = await kbRpc('kbWorkbench/readDoc', { docPath: 'docs/architecture.md' })
+    expect(read.ok).toBe(true)
+    expect(read.value).toMatchObject({
+      path: 'docs/architecture.md',
+      content: '# 架构说明\n\n团队系统的架构说明。',
+      mtime: 1_721_000_000_000,
+      size: 36,
+    })
+    await expect(kbRpc('kbWorkbench/readDoc', { docPath: 'docs/missing.md' })).rejects.toThrow(/not found/)
+  })
+
+  it('writes and removes a team doc through the fixture state', async () => {
+    // One client instance: the fixture's doc state is per-instance.
+    const client = new FixtureApiClient()
+    const rpc = (endpoint: string, args: Record<string, unknown>): ReturnType<typeof kbRpc> =>
+      client.rpc.call('/api', endpoint, { args: { sessionId: sid('fx-alpha'), ...args } })
+    const written = await rpc('kbWorkbench/writeDoc', {
+      docPath: 'docs/architecture.md',
+      content: '# 更新的架构说明',
+    })
+    expect(written.ok).toBe(true)
+    expect((written.value as { content: string; size: number }).content).toBe('# 更新的架构说明')
+    expect((written.value as { size: number }).size).toBe(new TextEncoder().encode('# 更新的架构说明').length)
+    // The read endpoint now serves the written content (the assembled journey
+    // refreshes the doc view after save).
+    const read = await rpc('kbWorkbench/readDoc', { docPath: 'docs/architecture.md' })
+    expect((read.value as { content: string }).content).toBe('# 更新的架构说明')
+    // Removal drops the doc from the served list.
+    const removed = await rpc('kbWorkbench/removeDoc', { docPath: 'docs/architecture.md' })
+    expect(removed.ok).toBe(true)
+    expect(removed.value).toEqual({ path: 'docs/architecture.md' })
+    const list = await rpc('kbWorkbench/listDocs', {})
+    expect(list.value).toEqual(['docs/onboarding.md'])
+  })
 })

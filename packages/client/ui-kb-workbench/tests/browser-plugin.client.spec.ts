@@ -79,6 +79,10 @@ describe('ui-kb-workbench browser half', () => {
       revive: vi.fn(async () => ({ ok: true as const, value: {} })),
       review: vi.fn(async () => ({ ok: true as const, value: {} })),
       edit: vi.fn(async () => ({ ok: true as const, value: {} })),
+      listDocs: vi.fn(async () => ({ ok: true as const, value: [] })),
+      readDoc: vi.fn(async () => ({ ok: true as const, value: {} })),
+      writeDoc: vi.fn(async () => ({ ok: true as const, value: {} })),
+      removeDoc: vi.fn(async () => ({ ok: true as const, value: {} })),
     }
     const { ctx } = await bench(kbWorkbench)
     const entry = ctx.slots.entries('settings.section').find(candidate => candidate.options.id === 'kb-workbench')
@@ -95,6 +99,10 @@ describe('ui-kb-workbench browser half', () => {
       revive: (s: string, id: string) => Promise<unknown>
       review: (s: string, id: string, approved: boolean) => Promise<unknown>
       edit: (s: string, id: string, patch: unknown, options?: unknown) => Promise<unknown>
+      listDocs: (s: string) => Promise<unknown>
+      readDoc: (s: string, docPath: string) => Promise<unknown>
+      writeDoc: (s: string, docPath: string, content: string, options?: unknown) => Promise<unknown>
+      removeDoc: (s: string, docPath: string, options?: unknown) => Promise<unknown>
     }
     await face.overview('s1', '2026-08-19')
     expect(kbWorkbench.overview).toHaveBeenCalledWith('s1', '2026-08-19')
@@ -110,6 +118,14 @@ describe('ui-kb-workbench browser half', () => {
     expect(kbWorkbench.review).toHaveBeenCalledWith('s1', 'rule-1', true)
     await face.edit('s1', 'rule-1', { title: '新标题' }, { approved: true })
     expect(kbWorkbench.edit).toHaveBeenCalledWith('s1', 'rule-1', { title: '新标题' }, { approved: true })
+    await face.listDocs('s1')
+    expect(kbWorkbench.listDocs).toHaveBeenCalledWith('s1')
+    await face.readDoc('s1', 'docs/a.md')
+    expect(kbWorkbench.readDoc).toHaveBeenCalledWith('s1', 'docs/a.md')
+    await face.writeDoc('s1', 'docs/a.md', '# 内容', { approved: true })
+    expect(kbWorkbench.writeDoc).toHaveBeenCalledWith('s1', 'docs/a.md', '# 内容', { approved: true })
+    await face.removeDoc('s1', 'docs/a.md', { approved: true })
+    expect(kbWorkbench.removeDoc).toHaveBeenCalledWith('s1', 'docs/a.md', { approved: true })
   })
 
   it('node half is inert', () => {

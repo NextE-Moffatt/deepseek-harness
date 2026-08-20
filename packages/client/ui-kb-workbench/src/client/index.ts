@@ -1,9 +1,9 @@
 /**
  * Knowledge-base governance workbench plugin, browser half: one settings
  * section (id `kb-workbench`) rendering the pending-review list, the card
- * detail, the lifecycle actions, and the flywheel dashboard. All data and
- * mutations ride the generated `kbWorkbench` Remote namespace — this plugin
- * owns no state machine and no second event stream.
+ * detail, the lifecycle actions, the flywheel dashboard, and the team wiki
+ * docs block. All data and mutations ride the generated `kbWorkbench` Remote
+ * namespace — this plugin owns no state machine and no second event stream.
  */
 import type { ClientContext, SessionId } from '@deepseek-ai/dsh-client-runtime/client'
 // Type-only: pulls the generated Remote API and ctx.remote merge through the
@@ -50,6 +50,12 @@ export function apply(ctx: ClientContext): void {
       ctx.remote.kbWorkbench.review(sessionId, id, approved),
     edit: (sessionId: SessionId, id: string, patch, options) =>
       ctx.remote.kbWorkbench.edit(sessionId, id, patch, options),
+    listDocs: (sessionId: SessionId) => ctx.remote.kbWorkbench.listDocs(sessionId),
+    readDoc: (sessionId: SessionId, docPath: string) => ctx.remote.kbWorkbench.readDoc(sessionId, docPath),
+    writeDoc: (sessionId: SessionId, docPath: string, content: string, options?) =>
+      ctx.remote.kbWorkbench.writeDoc(sessionId, docPath, content, options),
+    removeDoc: (sessionId: SessionId, docPath: string, options?) =>
+      ctx.remote.kbWorkbench.removeDoc(sessionId, docPath, options),
   })
 
   ctx.slots.inject('settings.section', () => ctx.slots.register({

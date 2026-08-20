@@ -3044,6 +3044,18 @@ function createFixtureWorld(options: FixtureOptions): FixtureWorld {
     value: { ...kbWorkbenchFixture.card, card: { ...kbWorkbenchFixture.card.card } },
   }
 
+  /**
+   * The fixture's team wiki docs: `kbWorkbench/listDocs` / `readDoc` serve
+   * them and `writeDoc` / `removeDoc` mutate them, so the assembled docs
+   * journey renders the saved content after the write refresh.
+   */
+  const kbWorkbenchDocState: { docs: Map<string, { content: string; mtime: number; size: number }> } = {
+    docs: new Map([
+      ['docs/architecture.md', { content: '# 架构说明\n\n团队系统的架构说明。', mtime: 1_721_000_000_000, size: 36 }],
+      ['docs/onboarding.md', { content: '# 新人指南\n\n入职第一周的阅读材料。', mtime: 1_721_000_000_000, size: 36 }],
+    ]),
+  }
+
   const rpc: ClientConnectionRpc = {
     call(channel, endpoint, payload) {
       if (channel !== '/api') {
@@ -3107,6 +3119,30 @@ function createFixtureWorld(options: FixtureOptions): FixtureWorld {
           return Promise.resolve({ ok: true, value: { ...kbWorkbenchFixture.card.card, 状态: 'revived' } })
         case 'kbWorkbench/review':
           return Promise.resolve({ ok: true, value: { ...kbWorkbenchFixture.card.card, 状态: 'ready', changed: true } })
+        // The team wiki docs face: deterministic canned docs served by path,
+        // mutated by writeDoc / removeDoc (see kb-workbench.snapshot.ts).
+        case 'kbWorkbench/listDocs':
+          return Promise.resolve({ ok: true, value: [...kbWorkbenchDocState.docs.keys()].sort() })
+        case 'kbWorkbench/readDoc': {
+          const docPath = (args as { docPath?: string }).docPath ?? ''
+          const doc = kbWorkbenchDocState.docs.get(docPath)
+          if (doc === undefined) return Promise.reject(new Error(`fixture doc not found: ${docPath}`))
+          return Promise.resolve({ ok: true, value: { path: docPath, ...doc } })
+        }
+        case 'kbWorkbench/writeDoc': {
+          const docPath = (args as { docPath?: string }).docPath ?? ''
+          const content = (args as { content?: string }).content ?? ''
+          const previous = kbWorkbenchDocState.docs.get(docPath)
+          if (previous === undefined) return Promise.reject(new Error(`fixture doc not found: ${docPath}`))
+          const updated = { content, mtime: 1_721_000_000_100, size: new TextEncoder().encode(content).length }
+          kbWorkbenchDocState.docs.set(docPath, updated)
+          return Promise.resolve({ ok: true, value: { path: docPath, ...updated } })
+        }
+        case 'kbWorkbench/removeDoc': {
+          const docPath = (args as { docPath?: string }).docPath ?? ''
+          kbWorkbenchDocState.docs.delete(docPath)
+          return Promise.resolve({ ok: true, value: { path: docPath } })
+        }
         default:
           return Promise.reject(new Error(`fixture connection RPC endpoint ${JSON.stringify(endpoint)} is unavailable`))
       }

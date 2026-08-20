@@ -15,6 +15,7 @@ import { hasClass, installAssembledBootEnv, mountAssembledApp, REFRESHING_GOLDEN
 const OVERVIEW_EXPECTED = join(process.cwd(), 'apps/web/tests/snapshots/kb-workbench/overview.expected.txt')
 const DETAIL_EXPECTED = join(process.cwd(), 'apps/web/tests/snapshots/kb-workbench/detail.expected.txt')
 const EDITED_EXPECTED = join(process.cwd(), 'apps/web/tests/snapshots/kb-workbench/edited.expected.txt')
+const DOCS_EXPECTED = join(process.cwd(), 'apps/web/tests/snapshots/kb-workbench/docs.expected.txt')
 
 installAssembledBootEnv()
 
@@ -53,6 +54,26 @@ function detailShape(): string {
     : [...actions.querySelectorAll('button')].map(button => button.textContent?.trim() ?? '').join('|')
   return [
     `detail=${fields?.textContent?.trim().replace(/\s+/g, ' ') ?? '<absent>'}`,
+    `actions=${actionText}`,
+  ].join('\n')
+}
+
+/** Normalize the team docs block to stable text fields. */
+function docsShape(): string {
+  const docs = byClass(document, 'docs')[0]
+  if (docs === undefined) return '<absent>'
+  const list = [...docs.querySelectorAll('li')].map(li =>
+    li.textContent?.trim().replace(/\s+/g, ' ') ?? '<absent>')
+  const title = firstText(docs, 'docTitle')
+  const content = firstText(docs, 'docContent')
+  const actions = byClass(docs, 'actions').pop()
+  const actionText = actions === undefined
+    ? '<absent>'
+    : [...actions.querySelectorAll('button')].map(button => button.textContent?.trim() ?? '').join('|')
+  return [
+    `list=${list.join(' || ')}`,
+    `doc=${title}`,
+    `content=${content}`,
     `actions=${actionText}`,
   ].join('\n')
 }
@@ -135,5 +156,34 @@ describe('assembled kb workbench surface', () => {
       writeFileSync(EDITED_EXPECTED, shape)
     }
     await expect(shape).toMatchFileSnapshot(EDITED_EXPECTED)
+  })
+
+  it('lists team docs, reads one, edits it with approval, and saves the refreshed content', async () => {
+    await openWorkbenchSection()
+    // The docs block lists the wiki documents.
+    await waitFor(() => {
+      expect(screen.getByText('Team docs')).toBeDefined()
+    }, { timeout: 10_000 })
+    fireEvent.click(screen.getByText('docs/architecture.md'))
+    await waitFor(() => {
+      expect(screen.getAllByText(/团队系统的架构说明/).length).toBeGreaterThan(0)
+    }, { timeout: 10_000 })
+    // Enter the edit form, replace the content, confirm the team write, save.
+    fireEvent.click(screen.getByText('Edit doc'))
+    const textarea = await screen.findByLabelText('Doc content') as HTMLTextAreaElement
+    fireEvent.change(textarea, { target: { value: '# 更新的架构说明\n\n编辑后的正文。' } })
+    fireEvent.click(screen.getByText('Confirmed: write the changes to the shared team library'))
+    fireEvent.click(screen.getByText('Save doc'))
+    // The form closes and the refreshed doc view shows the saved content.
+    await waitFor(() => {
+      expect(screen.getAllByText(/更新的架构说明/).length).toBeGreaterThan(0)
+    }, { timeout: 10_000 })
+    expect(screen.queryByText('Save doc')).toBeNull()
+    const shape = docsShape()
+    if (REFRESHING_GOLDEN) {
+      mkdirSync(dirname(DOCS_EXPECTED), { recursive: true })
+      writeFileSync(DOCS_EXPECTED, shape)
+    }
+    await expect(shape).toMatchFileSnapshot(DOCS_EXPECTED)
   })
 })

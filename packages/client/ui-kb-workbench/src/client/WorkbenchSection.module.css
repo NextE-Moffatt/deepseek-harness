@@ -227,3 +227,43 @@
   font-size: 12px;
   opacity: 0.55;
 }
+
+.docs {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.docList {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.docRow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.docTitle {
+  margin: 0;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.docContent {
+  margin: 0;
+  font-size: 13px;
+  white-space: pre-wrap;
+  font-family: monospace;
+}
+
+.docTextarea {
+  font-size: 13px;
+  padding: 6px 8px;
+  font-family: monospace;
+}

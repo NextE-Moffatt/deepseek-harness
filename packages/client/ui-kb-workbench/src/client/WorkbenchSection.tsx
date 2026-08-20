@@ -1,12 +1,13 @@
 /**
  * The knowledge-base governance workbench section: flywheel metrics, the
- * merged pending-review list (freshness + recap blind spots), the card detail
- * with its lifecycle actions and content edit form, and the team-edit
- * confirmation. All data arrives through the inject face (the `kbWorkbench`
- * Remote namespace); the component holds no service access and no second
- * event stream — every number is the host's projection of `kb/*` events or
- * their persisted files, and every edit is a `kb/edit` session fact on the
- * host side.
+ * merged pending-review list (freshness + recap blind spots), the team wiki
+ * docs block (list / read / edit / remove), the card detail with its
+ * lifecycle actions and content edit form, and the team-edit confirmation.
+ * All data arrives through the inject face (the `kbWorkbench` Remote
+ * namespace); the component holds no service access and no second event
+ * stream — every number is the host's projection of `kb/*` events or their
+ * persisted files, and every edit is a `kb/edit` or `kb/doc-*` session fact
+ * on the host side.
  */
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import type { ReactNode } from 'react'
@@ -15,16 +16,18 @@ import type { GlobalStandardProps } from '@deepseek-ai/dsh-client-ui-slots'
 import type { RemoteResult } from '@deepseek-ai/dsh-typert-protocol'
 import type { CardStatus, CardType } from '@deepseek-ai/dsh-kb-core/types'
 import type {
-  KbBlindSpotView, KbWorkbenchCard, KbWorkbenchEditOptions, KbWorkbenchEditPatch, KbWorkbenchOverview,
+  KbBlindSpotView, KbWorkbenchCard,
+  KbWorkbenchEditOptions, KbWorkbenchEditPatch, KbWorkbenchOverview,
 } from '@deepseek-ai/dsh-kb-web/client'
 import type { KbWorkbenchKey } from './locales.ts'
+import { TeamDocs, type TeamDocsInjected } from './TeamDocs.tsx'
 import styles from './WorkbenchSection.module.css'
 
 /** The four card types, the edit form's closed option set. */
 const CARD_TYPE_OPTIONS = ['rule', 'case', 'howto', 'decision'] as const
 
 /** The inject face the settings outlet spreads into the section props. */
-export interface WorkbenchSectionInjected {
+export type WorkbenchSectionInjected = {
   /** Bound section copy. */
   t: (key: KbWorkbenchKey) => string
   /** The merged pending-review view plus the flywheel metrics. */
@@ -46,7 +49,7 @@ export interface WorkbenchSectionInjected {
     patch: KbWorkbenchEditPatch,
     options?: KbWorkbenchEditOptions,
   ) => Promise<RemoteResult<KbWorkbenchCard>>
-}
+} & Pick<TeamDocsInjected, 'listDocs' | 'readDoc' | 'writeDoc' | 'removeDoc'>
 
 /** Props delivered by the settings outlet: runtime seat plus the inject face. */
 export type WorkbenchSectionProps = GlobalStandardProps & Partial<WorkbenchSectionInjected>
@@ -147,6 +150,7 @@ function patchFromForm(form: EditFormValues): KbWorkbenchEditPatch {
 export function WorkbenchSection(props: WorkbenchSectionProps): ReactNode {
   const {
     useSessions, t = () => '', overview, card, promote, archive, revive, review, edit,
+    listDocs, readDoc, writeDoc, removeDoc,
   } = props
   const sessions = useSessions(s => s)
 
@@ -418,6 +422,15 @@ export function WorkbenchSection(props: WorkbenchSectionProps): ReactNode {
               )
             })}
           </ul>
+
+          <TeamDocs
+            sessionId={activeSessionId}
+            t={t}
+            listDocs={listDocs}
+            readDoc={readDoc}
+            writeDoc={writeDoc}
+            removeDoc={removeDoc}
+          />
 
           {detail !== undefined && (
             <div className={styles.detail}>

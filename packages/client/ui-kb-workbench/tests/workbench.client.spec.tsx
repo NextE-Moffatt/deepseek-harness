@@ -11,7 +11,7 @@ import { makeTranslate } from '@deepseek-ai/dsh-client-test-runtime'
 import type { SessionId, SessionListState } from '@deepseek-ai/dsh-client-runtime/client'
 import type { CardId } from '@deepseek-ai/dsh-kb-core/types'
 import type { RemoteResult } from '@deepseek-ai/dsh-typert-protocol'
-import type { KbWorkbenchCard, KbWorkbenchOverview } from '@deepseek-ai/dsh-kb-web/client'
+import type { KbWorkbenchCard, KbWorkbenchDoc, KbWorkbenchOverview } from '@deepseek-ai/dsh-kb-web/client'
 import { WorkbenchSection, type WorkbenchSectionProps } from '../src/client/WorkbenchSection.tsx'
 import { zh } from '../src/client/locales.ts'
 
@@ -81,6 +81,18 @@ function cardFixture(over: Partial<KbWorkbenchCard> = {}): KbWorkbenchCard {
   }
 }
 
+const DOC = 'docs/architecture.md'
+
+function docFixture(over: Partial<KbWorkbenchDoc> = {}): KbWorkbenchDoc {
+  return {
+    path: DOC,
+    content: '# 架构说明',
+    mtime: 100,
+    size: 20,
+    ...over,
+  }
+}
+
 type Injected = Required<Omit<WorkbenchSectionProps, 'useSessions' | 'useWorkspaces'>>
 
 /** A driven `useSessions` hook returning the given snapshot through the selector. */
@@ -98,6 +110,10 @@ function injected(over: Partial<Injected> = {}): Injected {
     revive: vi.fn(async () => ({ ok: true as const, value: undefined })),
     review: vi.fn(async () => ({ ok: true as const, value: undefined })),
     edit: vi.fn(async () => ({ ok: true as const, value: cardFixture() })),
+    listDocs: vi.fn(async () => ({ ok: true as const, value: [DOC, 'docs/onboarding.md'] })),
+    readDoc: vi.fn(async () => ({ ok: true as const, value: docFixture() })),
+    writeDoc: vi.fn(async () => ({ ok: true as const, value: docFixture({ content: '# 更新的架构说明' }) })),
+    removeDoc: vi.fn(async () => ({ ok: true as const, value: { path: DOC } })),
     ...over,
   }
 }
@@ -567,5 +583,97 @@ describe('card editing', () => {
     fireEvent.click(screen.getByText('取消'))
     expect(screen.queryByText('保存')).toBeNull()
     expect(face.edit).not.toHaveBeenCalled()
+  })
+})
+
+describe('team docs block', () => {
+  it('lists the wiki docs and opens a read view with the content', async () => {
+    const face = injected()
+    renderSection(face)
+    expect(await screen.findByText('团队文档')).toBeDefined()
+    expect(face.listDocs).toHaveBeenCalledWith(SESSION)
+    fireEvent.click(screen.getByText(DOC))
+    expect(await screen.findByText('# 架构说明')).toBeDefined()
+    expect(face.readDoc).toHaveBeenCalledWith(SESSION, DOC)
+    expect(screen.getByText('编辑文档')).toBeDefined()
+    expect(screen.getByText('删除文档')).toBeDefined()
+  })
+
+  it('saves an edited doc with the expected identity and the team approval', async () => {
+    const face = injected()
+    renderSection(face)
+    await screen.findByText('团队文档')
+    fireEvent.click(screen.getByText(DOC))
+    fireEvent.click(await screen.findByText('编辑文档'))
+    const textarea = screen.getByLabelText('文档内容') as HTMLTextAreaElement
+    fireEvent.change(textarea, { target: { value: '# 更新的架构说明' } })
+    fireEvent.click(screen.getByLabelText('已确认将修改写入团队共享知识库'))
+    fireEvent.click(screen.getByText('保存文档'))
+    await waitFor(() => {
+      expect(face.writeDoc).toHaveBeenCalledWith(SESSION, DOC, '# 更新的架构说明', {
+        expected: { mtime: 100, size: 20 },
+        approved: true,
+      })
+    })
+    // The refreshed doc view renders the saved content and exits the form.
+    expect(await screen.findByText('# 更新的架构说明')).toBeDefined()
+    expect(screen.queryByText('保存文档')).toBeNull()
+  })
+
+  it('cancels the edit form and restores the original content', async () => {
+    const face = injected()
+    renderSection(face)
+    await screen.findByText('团队文档')
+    fireEvent.click(screen.getByText(DOC))
+    fireEvent.click(await screen.findByText('编辑文档'))
+    fireEvent.change(screen.getByLabelText('文档内容'), { target: { value: '未保存的修改' } })
+    fireEvent.click(screen.getByText('取消'))
+    expect(screen.queryByText('保存文档')).toBeNull()
+    expect(await screen.findByText('# 架构说明')).toBeDefined()
+    expect(face.writeDoc).not.toHaveBeenCalled()
+  })
+
+  it('deletes a doc only after the explicit confirm, carrying the approval', async () => {
+    const face = injected()
+    renderSection(face)
+    await screen.findByText('团队文档')
+    fireEvent.click(screen.getByText(DOC))
+    fireEvent.click(await screen.findByText('删除文档'))
+    // The first click only arms the confirm; removeDoc is not called yet.
+    expect(face.removeDoc).not.toHaveBeenCalled()
+    fireEvent.click(screen.getByText('确认删除'))
+    await waitFor(() => {
+      expect(face.removeDoc).toHaveBeenCalledWith(SESSION, DOC, { approved: true })
+    })
+    // The read view closes and the list reloads.
+    expect(screen.queryByText('# 架构说明')).toBeNull()
+    await waitFor(() => { expect(face.listDocs).toHaveBeenCalledTimes(2) })
+  })
+
+  it('surfaces a gated write failure and stays in the form', async () => {
+    const face = injected({
+      writeDoc: vi.fn(async () => ({ ok: false as const, error: { code: 'approval', message: '团队文档写入需经审批', details: {} } })),
+    })
+    renderSection(face)
+    await screen.findByText('团队文档')
+    fireEvent.click(screen.getByText(DOC))
+    fireEvent.click(await screen.findByText('编辑文档'))
+    fireEvent.click(screen.getByText('保存文档'))
+    expect(await screen.findByRole('alert')).toBeDefined()
+    expect(screen.getByText('团队文档写入需经审批')).toBeDefined()
+    expect(screen.getByText('保存文档')).toBeDefined()
+  })
+
+  it('renders the empty state when the team has no docs', async () => {
+    renderSection(injected({ listDocs: vi.fn(async () => ({ ok: true as const, value: [] })) }))
+    expect(await screen.findByText('暂无团队文档')).toBeDefined()
+  })
+
+  it('degrades to the loading hint when the docs faces are absent', async () => {
+    renderSection(injected({
+      listDocs: undefined as never, readDoc: undefined as never, writeDoc: undefined as never, removeDoc: undefined as never,
+    }))
+    expect(await screen.findByText('团队文档')).toBeDefined()
+    expect(screen.getByText('处理中…')).toBeDefined()
   })
 })
