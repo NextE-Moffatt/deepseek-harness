@@ -21,6 +21,7 @@ The personal + team knowledge base: Markdown + YAML knowledge cards in the sessi
 | `teamRead(root, id)` | Read one team card; throws when the team library does not hold it. |
 | `teamStatus(root)` / `teamCommit(root, message)` | The team work tree's porcelain status and the stage + commit operation (the human review point). |
 | `listTeamDocs(root)` / `readTeamDoc(root, docPath)` | The `docs/` wiki layer, repository-relative; docs never enter the citation pool. |
+| `teamDocInfo(root, docPath)` / `writeTeamDoc(root, docPath, content, options?)` / `removeTeamDoc(root, docPath, options?)` | The `docs/` wiki write face: overwrite and remove in place (escape + `.md` guards), guarded by the optimistic mtime/size identity and the `teamWriteApproval` gate; creation stays with the team's git workflow. |
 | `heat(root)` | The aggregated heat ledger: which cards were consumed by which sessions. |
 | `freshnessReview(root, today?)` | The pending-review list: overdue and expiring-soon cards with heat and recommendations. |
 | `recap(root, limit)` | Run one recap scan: detect the unrecorded blind spots, list up to `limit`, and record the listed positions into the checkpoint. |
@@ -56,7 +57,7 @@ The promotion state machine is `draft → pending → ready → archived → rev
 
 ## Events
 
-`kb/write` (a card file written by a tool), `kb/edit` (a card's content fields changed by the workbench or a future edit consumer), `kb/promote` (a lifecycle transition), `kb/team-join` (a personal card entered the team library through the first gate), `kb/injected` (one knowledge-pack injection), and `kb/recap` (one recap scan's checkpoint advancement) extend `SessionEventMap`; all are appended after the underlying operation succeeds, so the model-visible surface is replayable from the session log.
+`kb/write` (a card file written by a tool), `kb/edit` (a card's content fields changed by the workbench or a future edit consumer), `kb/promote` (a lifecycle transition), `kb/team-join` (a personal card entered the team library through the first gate), `kb/injected` (one knowledge-pack injection), `kb/recap` (one recap scan's checkpoint advancement), and `kb/doc-write` / `kb/doc-remove` (a team wiki document written or removed through the web workbench — docs never enter the reference pool) extend `SessionEventMap`; all are appended after the underlying operation succeeds, so the model-visible surface is replayable from the session log.
 
 ## Knowledge packs
 
@@ -126,7 +127,7 @@ Prefix-stable while the injected packs are unchanged; the section follows the re
 
 ## Known Limitations and Deferred Work
 
-- **Docs are read-only for agents** — the `docs/` wiki is human reading material; agent-side doc writing awaits the web workbench.
+- **Docs write happens through the web workbench** — `writeTeamDoc` / `removeTeamDoc` overwrite and remove `docs/` files in place (approval-gated, identity-guarded); docs creation stays with the team's own git workflow, and a model-facing doc-write tool and workbench doc creation await real authoring requirements.
 - **kb never clones, fetches, or pushes** — the team repository's remote sync is the team's own git workflow; kb commits stay local until the team pushes.
 - **Heat is per workspace** — the ledger at `KbConfig.heatPath` records this workspace's sessions; cross-workspace aggregation for the team library is workbench work.
 - **No distributed lock on card writes** — content edits carry the optimistic mtime/size conflict guard (a stale edit fails loud), but lifecycle transitions and concurrent agent writes can still lose an update; git conflict resolution at push time is the boundary (see the [git strategy note](../../../.agents/notes/implemented/feature/2026-08-19-dsh-kb-team-git-strategy.md)).

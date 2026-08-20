@@ -475,6 +475,37 @@ export type SessionEvent<T extends SessionEventType = SessionEventType> = {
 
 ### `kb/*`
 
+<a id="kbdoc-remove--log-only"></a>
+
+#### `kb/doc-remove` — log-only
+
+```ts persistence-catalog
+/** A team wiki document under `docs/` was removed through the web
+ * workbench; the git work tree and the explicit `kb_team_commit` retain
+ * the deleted file's history. */
+'kb/doc-remove': {
+  path: string
+}
+```
+
+来源：[`packages/kb/kb-core/src/types.ts:237`](../packages/kb/kb-core/src/types.ts)
+
+<a id="kbdoc-write--log-only"></a>
+
+#### `kb/doc-write` — log-only
+
+```ts persistence-catalog
+/** A team wiki document under `docs/` was written or overwritten through
+ * the web workbench; the file at `path` stays the content source of
+ * truth, exactly like `kb/write`. Docs never enter the reference pool. */
+'kb/doc-write': {
+  path: string
+  size: number
+}
+```
+
+来源：[`packages/kb/kb-core/src/types.ts:230`](../packages/kb/kb-core/src/types.ts)
+
 <a id="kbedit--log-only"></a>
 
 #### `kb/edit` — log-only

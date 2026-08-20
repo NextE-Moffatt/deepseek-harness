@@ -472,6 +472,37 @@ Source: [`packages/hooks/hook-protocol/src/types.ts:31`](../packages/hooks/hook-
 
 ### `kb/*`
 
+<a id="kbdoc-remove--log-only"></a>
+
+#### `kb/doc-remove` — log-only
+
+```ts persistence-catalog
+/** A team wiki document under `docs/` was removed through the web
+ * workbench; the git work tree and the explicit `kb_team_commit` retain
+ * the deleted file's history. */
+'kb/doc-remove': {
+  path: string
+}
+```
+
+Source: [`packages/kb/kb-core/src/types.ts:237`](../packages/kb/kb-core/src/types.ts)
+
+<a id="kbdoc-write--log-only"></a>
+
+#### `kb/doc-write` — log-only
+
+```ts persistence-catalog
+/** A team wiki document under `docs/` was written or overwritten through
+ * the web workbench; the file at `path` stays the content source of
+ * truth, exactly like `kb/write`. Docs never enter the reference pool. */
+'kb/doc-write': {
+  path: string
+  size: number
+}
+```
+
+Source: [`packages/kb/kb-core/src/types.ts:230`](../packages/kb/kb-core/src/types.ts)
+
 <a id="kbedit--log-only"></a>
 
 #### `kb/edit` — log-only
@@ -487,7 +518,7 @@ Source: [`packages/hooks/hook-protocol/src/types.ts:31`](../packages/hooks/hook-
 }
 ```
 
-Source: [`packages/kb/kb-core/src/types.ts:188`](../packages/kb/kb-core/src/types.ts)
+Source: [`packages/kb/kb-core/src/types.ts:191`](../packages/kb/kb-core/src/types.ts)
 
 <a id="kbinjected--log-only"></a>
 
@@ -504,7 +535,7 @@ Source: [`packages/kb/kb-core/src/types.ts:188`](../packages/kb/kb-core/src/type
 }
 ```
 
-Source: [`packages/kb/kb-core/src/types.ts:199`](../packages/kb/kb-core/src/types.ts)
+Source: [`packages/kb/kb-core/src/types.ts:202`](../packages/kb/kb-core/src/types.ts)
 
 <a id="kbpromote--log-only"></a>
 
@@ -516,7 +547,7 @@ Source: [`packages/kb/kb-core/src/types.ts:199`](../packages/kb/kb-core/src/type
 'kb/promote': { id: CardId; from: CardStatus; to: CardStatus; evidence?: string }
 ```
 
-Source: [`packages/kb/kb-core/src/types.ts:195`](../packages/kb/kb-core/src/types.ts)
+Source: [`packages/kb/kb-core/src/types.ts:198`](../packages/kb/kb-core/src/types.ts)
 
 <a id="kbrecap--log-only"></a>
 
@@ -536,7 +567,7 @@ Source: [`packages/kb/kb-core/src/types.ts:195`](../packages/kb/kb-core/src/type
 }
 ```
 
-Source: [`packages/kb/kb-core/src/types.ts:217`](../packages/kb/kb-core/src/types.ts)
+Source: [`packages/kb/kb-core/src/types.ts:220`](../packages/kb/kb-core/src/types.ts)
 
 <a id="kbteam-join--log-only"></a>
 
@@ -554,7 +585,7 @@ Source: [`packages/kb/kb-core/src/types.ts:217`](../packages/kb/kb-core/src/type
 }
 ```
 
-Source: [`packages/kb/kb-core/src/types.ts:208`](../packages/kb/kb-core/src/types.ts)
+Source: [`packages/kb/kb-core/src/types.ts:211`](../packages/kb/kb-core/src/types.ts)
 
 <a id="kbwrite--log-only"></a>
 
@@ -573,7 +604,7 @@ Source: [`packages/kb/kb-core/src/types.ts:208`](../packages/kb/kb-core/src/type
 }
 ```
 
-Source: [`packages/kb/kb-core/src/types.ts:177`](../packages/kb/kb-core/src/types.ts)
+Source: [`packages/kb/kb-core/src/types.ts:180`](../packages/kb/kb-core/src/types.ts)
 
 ### `llm/*`
 

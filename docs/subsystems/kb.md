@@ -57,7 +57,7 @@ The promotion state machine is the closed chain `draft → pending → ready →
 
 ## Team library
 
-The team library is a git work tree at `KbConfig.teamRepoPath` (absolute, or relative to the session workspace root): structured cards under `cards/`, document-style wiki text under `docs/` for humans — docs never enter the card list, the search index, or the citation pool. kb reads and writes the working tree only; commits are the explicit `kb_team_commit` operation (draft → review → commit, with `kb_team_status` showing the pending diff), and the write tools route through the approval `ask` gate when `KbConfig.teamWriteApproval` is set. The git concurrency and approval strategy is decided in the [team git strategy Agent Note](../../.agents/notes/implemented/feature/2026-08-19-dsh-kb-team-git-strategy.md).
+The team library is a git work tree at `KbConfig.teamRepoPath` (absolute, or relative to the session workspace root): structured cards under `cards/`, document-style wiki text under `docs/` for humans — docs never enter the card list, the search index, or the citation pool. kb reads and writes the working tree only; commits are the explicit `kb_team_commit` operation (draft → review → commit, with `kb_team_status` showing the pending diff), and the write tools route through the approval `ask` gate when `KbConfig.teamWriteApproval` is set. The web workbench writes `docs/` through `writeTeamDoc` / `removeTeamDoc` (overwrite + remove only; creation stays with the team's git workflow) under the same `teamWriteApproval` gate with the workbench's own `approved` signal, and logs `kb/doc-write` / `kb/doc-remove` — the docs discipline is unchanged, docs stay human reading material. The git concurrency and approval strategy is decided in the [team git strategy Agent Note](../../.agents/notes/implemented/feature/2026-08-19-dsh-kb-team-git-strategy.md).
 
 ## Search contract
 
@@ -65,7 +65,7 @@ The team library is a git work tree at `KbConfig.teamRepoPath` (absolute, or rel
 
 ## Session events
 
-State changes are logged: `kb/write` records a tool-performed card write, `kb/edit` records a content edit (the changed field names; the card file stays the content source of truth), `kb/promote` records a lifecycle transition, `kb/team-join` records a personal card entering the team library through the first gate, `kb/injected` records one knowledge-pack injection at session start, and `kb/recap` records one recap scan's checkpoint advancement (the recorded positions and the listed blind spots). All are appended after the underlying operation succeeds, so the model-visible surface replays from the session log; `kb/injected` carries the full rendered card sections, so the `kb:pack` prompt section reconstructs from the log alone. The full payload declarations live in the [persistence catalog](../persistence-catalog.md#kbpromote--log-only).
+State changes are logged: `kb/write` records a tool-performed card write, `kb/edit` records a content edit (the changed field names; the card file stays the content source of truth), `kb/promote` records a lifecycle transition, `kb/team-join` records a personal card entering the team library through the first gate, `kb/injected` records one knowledge-pack injection at session start, `kb/recap` records one recap scan's checkpoint advancement (the recorded positions and the listed blind spots), and `kb/doc-write` / `kb/doc-remove` record a human workbench write or removal of a team wiki document (the doc file stays the content source of truth; docs never enter the reference pool). All are appended after the underlying operation succeeds, so the model-visible surface replays from the session log; `kb/injected` carries the full rendered card sections, so the `kb:pack` prompt section reconstructs from the log alone. The full payload declarations live in the [persistence catalog](../persistence-catalog.md#kbpromote--log-only).
 
 ## Knowledge packs
 
@@ -123,7 +123,7 @@ Three methodology skills register on the skills registry when a skills service i
 
 ## Web workbench
 
-The human surface is a web settings section (`kb-workbench`) composed from `@deepseek-ai/dsh-kb-web` (host Remote service `ctx.kbWorkbench` under the `kbWorkbench` namespace), `@deepseek-ai/dsh-client-ui-kb-workbench` (browser half), and kb-core — see the [kb-web overlay example](../../examples/kb-web/cordis.yml). The workbench renders the merged pending-review list (freshness + unrecorded recap blind spots, detected without recording so the checkpoint queue stays with the tool and the scheduler), full card reads, five flywheel metrics projected from `kb/*` events and their persisted files, and the lifecycle actions (promote / archive / revive / review) — thin event-appending wrappers over the existing `ctx.kb` methods that append the same `kb/promote` events the tools append to the workbench session's own log. The content-edit action (`edit`) applies a card-content patch through `KbService.editCard` — the optimistic mtime/size conflict guard and the team-edit approval gate (under `teamWriteApproval`) are enforced there — and appends `kb/edit` when anything changed; both libraries edit in place. No second state machine or event stream exists.
+The human surface is a web settings section (`kb-workbench`) composed from `@deepseek-ai/dsh-kb-web` (host Remote service `ctx.kbWorkbench` under the `kbWorkbench` namespace), `@deepseek-ai/dsh-client-ui-kb-workbench` (browser half), and kb-core — see the [kb-web overlay example](../../examples/kb-web/cordis.yml). The workbench renders the merged pending-review list (freshness + unrecorded recap blind spots, detected without recording so the checkpoint queue stays with the tool and the scheduler), full card reads, five flywheel metrics projected from `kb/*` events and their persisted files, the lifecycle actions (promote / archive / revive / review), and the team wiki docs block (list / read / write / remove) — thin event-appending wrappers over the existing `ctx.kb` methods that append the same `kb/*` events the tools append to the workbench session's own log. The content-edit action (`edit`) applies a card-content patch through `KbService.editCard` — the optimistic mtime/size conflict guard and the team-edit approval gate (under `teamWriteApproval`) are enforced there — and appends `kb/edit` when anything changed; both libraries edit in place. The docs actions (`writeDoc` / `removeDoc`) apply `KbService.writeTeamDoc` / `removeTeamDoc` with the same conflict guard and approval gate and append `kb/doc-write` / `kb/doc-remove`; docs never enter the reference pool. No second state machine or event stream exists.
 
 ## MCP exposure
 
@@ -313,6 +313,43 @@ async listTeamDocs(root: string): Promise<string[]>
 async readTeamDoc(root: string, docPath: string): Promise<string>
 
 /**
+ * The identity of one wiki document (mtime + size), the write conflict
+ * guard's expected values. Fails loud when the doc is missing or escapes
+ * `docs/`.
+ * @param root - the session workspace root.
+ * @param docPath - the repository-relative doc path (`docs/...`).
+ * @returns the repository-relative path and the file identity.
+ */
+async teamDocInfo(root: string, docPath: string): Promise<{ path: string; mtime: number; size: number }>
+
+/**
+ * Write (overwrite) one team wiki document: refuse paths that escape `docs/`
+ * or lack a `.md` extension, guard against concurrent modification via the
+ * expected file identity, and require `options.approved` when
+ * `KbConfig.teamWriteApproval` is set (docs live only in the team library).
+ * The caller (workbench) appends `kb/doc-write` after the write succeeds.
+ * @param root - the session workspace root.
+ * @param docPath - the repository-relative doc path (`docs/...`).
+ * @param content - the document text (non-empty).
+ * @param options - the optimistic guard and the team approval signal.
+ * @returns the repository-relative path and the file identity after the write.
+ */
+async writeTeamDoc(root: string, docPath: string, content: string, options?: TeamDocWriteOptions): Promise<TeamDocWriteResult>
+
+/**
+ * Remove one team wiki document: refuse paths that escape `docs/` or lack a
+ * `.md` extension, require `options.approved` when `KbConfig.teamWriteApproval`
+ * is set, and fail loud when the doc is already gone. The caller (workbench)
+ * appends `kb/doc-remove` after the removal succeeds; the git work tree
+ * retains the deleted file's history through `kb_team_commit`.
+ * @param root - the session workspace root.
+ * @param docPath - the repository-relative doc path (`docs/...`).
+ * @param options - the team approval signal.
+ * @returns the repository-relative path removed.
+ */
+async removeTeamDoc(root: string, docPath: string, options?: TeamDocWriteOptions): Promise<{ path: string }>
+
+/**
  * The workspace's aggregated heat ledger: which cards were consumed by which
  * sessions, projected from `kb/injected` events (see {@link HeatLedger}).
  * @param root - the session workspace root.
@@ -341,13 +378,13 @@ freshnessReview(root: string, today?: string): Promise<FreshnessReview>
 async recap(root: string, limit: number): Promise<RecapScanResult>
 ```
 
-Source: [`packages/kb/kb-core/src/index.ts:318`](../../packages/kb/kb-core/src/index.ts)
+Source: [`packages/kb/kb-core/src/index.ts:338`](../../packages/kb/kb-core/src/index.ts)
 
 <a id="ctxkbworkbench--kbworkbenchservice"></a>
 
 ### `ctx.kbWorkbench` — `KbWorkbenchService`
 
-`ctx.kbWorkbench`: owns the web governance workbench seam — merged pending-review views, card reads, flywheel metrics, and lifecycle actions over `ctx.kb`. Every Remote method takes the session first; the workspace root derives from `session.header.cwd`.
+`ctx.kbWorkbench`: owns the web governance workbench seam — merged pending-review views, card reads, flywheel metrics, lifecycle actions, and the team wiki docs face over `ctx.kb`. Every Remote method takes the session first; the workspace root derives from `session.header.cwd`.
 
 ```ts cordis-catalog
 /**
@@ -382,6 +419,47 @@ Source: [`packages/kb/kb-core/src/index.ts:318`](../../packages/kb/kb-core/src/i
  * @returns the refreshed card view.
  */
 @Remote('edit') async edit(session: Session, id: string, patch: KbWorkbenchEditPatch, options?: KbWorkbenchEditOptions): Promise<KbWorkbenchCard>
+
+/**
+ * The team wiki documents under the team library's `docs/`.
+ * @param session - the workbench session (its cwd is the workspace root).
+ * @returns the sorted repository-relative doc paths.
+ */
+@Remote('listDocs') async listDocs(session: Session): Promise<string[]>
+
+/**
+ * Read one team wiki document with the file identity the write conflict
+ * guard expects.
+ * @param session - the workbench session (its cwd is the workspace root).
+ * @param docPath - the repository-relative doc path (`docs/...`).
+ * @returns the document view.
+ * @throws when the path escapes `docs/` or the doc is missing.
+ */
+@Remote('readDoc') async readDoc(session: Session, docPath: string): Promise<KbWorkbenchDoc>
+
+/**
+ * The team-doc write action: overwrite through `KbService.writeTeamDoc`
+ * (conflict-guarded, team-gated) and append `kb/doc-write` to the workbench
+ * session's log. The doc file stays the content source of truth; docs never
+ * enter the reference pool.
+ * @param session - the workbench session (its cwd is the workspace root).
+ * @param docPath - the repository-relative doc path (`docs/...`).
+ * @param content - the document text.
+ * @param options - the expected file identity and the team approval signal.
+ * @returns the refreshed document view.
+ */
+@Remote('writeDoc') async writeDoc(session: Session, docPath: string, content: string, options?: KbWorkbenchDocOptions): Promise<KbWorkbenchDoc>
+
+/**
+ * The team-doc remove action: delete through `KbService.removeTeamDoc`
+ * (team-gated) and append `kb/doc-remove` to the workbench session's log;
+ * the git work tree and the explicit `kb_team_commit` retain history.
+ * @param session - the workbench session (its cwd is the workspace root).
+ * @param docPath - the repository-relative doc path (`docs/...`).
+ * @param options - the team approval signal.
+ * @returns the removed repository-relative doc path.
+ */
+@Remote('removeDoc') async removeDoc(session: Session, docPath: string, options?: KbWorkbenchDocOptions): Promise<{ path: string }>
 
 /**
  * The promotion action: apply the transition and append `kb/promote` to the
@@ -426,5 +504,5 @@ Source: [`packages/kb/kb-core/src/index.ts:318`](../../packages/kb/kb-core/src/i
 
 Types: [Session](session.md)
 
-Source: [`packages/kb/kb-web/src/index.ts:99`](../../packages/kb/kb-web/src/index.ts)
+Source: [`packages/kb/kb-web/src/index.ts:100`](../../packages/kb/kb-web/src/index.ts)
 <!-- END GENERATED cordis-surface -->

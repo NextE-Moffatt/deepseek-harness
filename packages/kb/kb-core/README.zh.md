@@ -21,6 +21,7 @@
 | `teamRead(root, id)` | 读取一张团队卡片；团队库无此卡时抛错。 |
 | `teamStatus(root)` / `teamCommit(root, message)` | 团队工作树的 porcelain 状态与暂存 + 提交操作（人复核点）。 |
 | `listTeamDocs(root)` / `readTeamDoc(root, docPath)` | `docs/` Wiki 层（仓库相对路径）；docs 永不进入引用池。 |
+| `teamDocInfo(root, docPath)` / `writeTeamDoc(root, docPath, content, options?)` / `removeTeamDoc(root, docPath, options?)` | `docs/` Wiki 写面：原位覆盖与删除（逃逸 + `.md` 守卫），由乐观 mtime/size 身份与 `teamWriteApproval` 门守卫；新建留在团队自己的 git 工作流。 |
 | `heat(root)` | 热度账本聚合：哪些卡片被哪些会话消费。 |
 | `freshnessReview(root, today?)` | 待复核清单：已过期与即将过期的卡片，附热度与建议。 |
 | `recap(root, limit)` | 运行一次复盘扫描：找出未记录的盲点、列出至多 `limit` 条并把已列出的位置记入检查点。 |
@@ -56,7 +57,7 @@
 
 ## Events
 
-`kb/write`（工具写入卡片文件）、`kb/edit`（工作台或未来编辑消费者修改卡片内容字段）、`kb/promote`（状态流转）、`kb/team-join`（个人卡片经第一道门进入团队库）、`kb/injected`（一次知识包注入）与 `kb/recap`（一次复盘扫描的检查点推进）扩展 `SessionEventMap`，均在底层操作成功后追加，模型可见面可从 session 日志回放。
+`kb/write`（工具写入卡片文件）、`kb/edit`（工作台或未来编辑消费者修改卡片内容字段）、`kb/promote`（状态流转）、`kb/team-join`（个人卡片经第一道门进入团队库）、`kb/injected`（一次知识包注入）、`kb/recap`（一次复盘扫描的检查点推进）与 `kb/doc-write` / `kb/doc-remove`（经 Web 工作台写入或删除团队 wiki 文档——docs 永不进入引用池）扩展 `SessionEventMap`，均在底层操作成功后追加，模型可见面可从 session 日志回放。
 
 ## Knowledge packs
 
@@ -126,7 +127,7 @@
 
 ## Known Limitations and Deferred Work
 
-- **docs 对 agent 只读**——`docs/` Wiki 是给人读的材料；agent 侧写 docs 等 web 工作台。
+- **docs 写经 Web 工作台**——`writeTeamDoc` / `removeTeamDoc` 原位覆盖与删除 `docs/` 文件（审批门 + 身份守卫）；docs 新建留在团队自己的 git 工作流，模型面 doc-write 工具与工作台新建文档等真实创作需求落地。
 - **kb 从不 clone/fetch/push**——团队仓库的远端同步是团队自己的 git 工作流；kb 的提交停留在本地直到团队推送。
 - **热度按 workspace 记账**——`KbConfig.heatPath` 账本只记录本 workspace 的会话；团队库的跨 workspace 聚合是工作台工作。
 - **卡片写入无分布式锁**——内容编辑带乐观 mtime/size 冲突守卫（过期编辑大声失败），但状态迁移与并发的 agent 写入仍可能丢失更新；push 时的 git 冲突解决是边界（见 [git 策略 Note](../../../.agents/notes/implemented/feature/2026-08-19-dsh-kb-team-git-strategy.md)）。

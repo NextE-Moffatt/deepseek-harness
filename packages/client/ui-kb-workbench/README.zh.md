@@ -2,7 +2,7 @@
 
 [English](README.md) | 中文
 
-知识库治理工作台，浏览器侧：设置页的一个 section（id `kb-workbench`，导航文案 知识库），渲染合并待复核清单（保鲜 + 复盘盲点）、卡片详情、生命周期动作、内容编辑表单与飞轮看板。主机侧是 [`@deepseek-ai/dsh-kb-web`](../../kb/kb-web/README.md)；[里程碑 5 Agent Note](../../../.agents/notes/implemented/feature/2026-08-19-dsh-kb-milestone-5-workbench-and-mcp.md) 拥有范围决策，[里程碑 7 Agent Note](../../../.agents/notes/implemented/feature/2026-08-19-dsh-kb-milestone-7-doc-import-and-workbench-edit.md) 增加编辑面。
+知识库治理工作台，浏览器侧：设置页的一个 section（id `kb-workbench`，导航文案 知识库），渲染合并待复核清单（保鲜 + 复盘盲点）、卡片详情、生命周期动作、内容编辑表单、团队 wiki docs 块（列 / 读 / 编辑 / 删除）与飞轮看板。主机侧是 [`@deepseek-ai/dsh-kb-web`](../../kb/kb-web/README.md)；[里程碑 5 Agent Note](../../../.agents/notes/implemented/feature/2026-08-19-dsh-kb-milestone-5-workbench-and-mcp.md) 拥有范围决策，[里程碑 7 Agent Note](../../../.agents/notes/implemented/feature/2026-08-19-dsh-kb-milestone-7-doc-import-and-workbench-edit.md) 增加编辑面，[里程碑 8 Agent Note](../../../.agents/notes/implemented/feature/2026-08-20-dsh-kb-milestone-8-team-docs-web-write.md) 增加团队 docs 写面。
 
 ## Surface
 
@@ -13,6 +13,7 @@
 - **卡片详情** —— 任意复核行、热度条目或盲点消费卡片打开的一张完整卡片的全部知识字段。
 - **生命周期动作** —— kb seam 恰好支持的那些迁移：晋升待核/引用池（个人）、复核通过/不通过（团队 pending）、归档（团队 ready/revived）、复活（团队 archived）。每个动作都走 `kbWorkbench` Remote namespace——它执行 `ctx.kb` 操作并向工作台所在 session 自己的日志追加与工具相同的 `kb/promote` 事件。
 - **内容编辑** —— 卡片详情的"编辑"按钮打开内容字段表单（类型 / 标题 / 适用条件 / 核心结论 / 应做 / 不应做 / 反例 / 来源 / 责任人 / 有效期 / 标签）。保存时携带详情读取时的 mtime/size 文件身份，并发修改会带冲突信息大声失败并保持表单打开；团队卡编辑在默认 `teamWriteApproval` 下需显式确认（approved）。成功后主机追加 `kb/edit` 并刷新详情与 overview。
+- **团队文档** —— wiki docs 块列出团队库 `docs/` 文档（仓库相对路径）；点开显示内容，"编辑文档"打开文本域表单。保存经主机 `writeDoc` 覆盖（携带读取身份做冲突守卫，带与卡片编辑同款团队确认）；"删除文档"需显式确认后才调用 `removeDoc`。两者都在主机侧追加 `kb/doc-write` / `kb/doc-remove` 并刷新列表。docs 永不进入卡片列表或引用池。
 
 ## Data and mutation flow
 
@@ -24,7 +25,7 @@
 
 #### What the model sees
 
-工作台自身不新增任何模型可见面：它驱动的动作追加与既有工具相同的 `kb/*` 事件，因此人的动作与工具调用一样可从 session 日志重建。工作台动作执行迁移时追加携带迁移载荷的 `kb/promote`；被拒的复核不追加，与 `kb_review` 完全一致。内容编辑追加携带变更字段名的 `kb/edit`（卡片文件仍是内容唯一事实源）；无任何变更的编辑不追加。看板数字是 `kb/*` 事件及其持久化文件（热度账本、复盘检查点、卡片文件）的投影。
+工作台自身不新增任何模型可见面：它驱动的动作追加与既有工具相同的 `kb/*` 事件，因此人的动作与工具调用一样可从 session 日志重建。工作台动作执行迁移时追加携带迁移载荷的 `kb/promote`；被拒的复核不追加，与 `kb_review` 完全一致。内容编辑追加携带变更字段名的 `kb/edit`（卡片文件仍是内容唯一事实源）；无任何变更的编辑不追加。团队 docs 写入或删除追加 `kb/doc-write`（文档路径与字节数；文档文件仍是内容唯一事实源）或 `kb/doc-remove`（文档路径）。看板数字是 `kb/*` 事件及其持久化文件（热度账本、复盘检查点、卡片文件）的投影。
 
 #### Token effect
 
@@ -37,6 +38,7 @@
 ## Known Limitations and Deferred Work
 
 - **可选组合** —— kb-core、kb-web 与本插件通过部署自己的 `cordis.yml` 挂载；出厂 `dsh-web-app` bundle 不含 kb。
-- **团队编辑就地确认** —— 团队卡编辑表单渲染显式的"写入团队共享知识库"确认，即主机门禁要求的 `approved` 信号；没有独立审批对话框。
+- **团队编辑就地确认** —— 团队卡编辑表单渲染显式的"写入团队共享知识库"确认，即主机门禁要求的 `approved` 信号；团队 docs 块对保存带同款确认、对删除带两步确认。没有独立审批对话框。
+- **团队 docs 是覆盖 + 删除** —— 块只编辑与删除既有 `docs/` 文档；新建文档留在团队自己的 git 工作流（工作台新建入口等真实 wiki 创作需求）。
 - **一个工作区一个 session** —— 选择器列出带工作区根的 session；没有 session 的工作区无法服务工作台。
 - **错误就地呈现** —— Remote 失败渲染在 section 的告警行并带重试；没有 toast 或通知渠道（IM 通知后置）。

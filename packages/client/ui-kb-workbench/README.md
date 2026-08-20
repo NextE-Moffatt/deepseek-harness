@@ -2,7 +2,7 @@
 
 English | [中文](README.zh.md)
 
-The knowledge-base governance workbench, browser half: one settings section (id `kb-workbench`, nav label 知识库) rendering the merged pending-review list (freshness + recap blind spots), the card detail, the lifecycle actions, the content-edit form, and the flywheel dashboard. The host half is [`@deepseek-ai/dsh-kb-web`](../../kb/kb-web/README.md); the [milestone-5 Agent Note](../../../.agents/notes/implemented/feature/2026-08-19-dsh-kb-milestone-5-workbench-and-mcp.md) owns the scope decisions and the [milestone-7 Agent Note](../../../.agents/notes/implemented/feature/2026-08-19-dsh-kb-milestone-7-doc-import-and-workbench-edit.md) adds the edit surface.
+The knowledge-base governance workbench, browser half: one settings section (id `kb-workbench`, nav label 知识库) rendering the merged pending-review list (freshness + recap blind spots), the card detail, the lifecycle actions, the content-edit form, the team wiki docs block (list / read / edit / remove), and the flywheel dashboard. The host half is [`@deepseek-ai/dsh-kb-web`](../../kb/kb-web/README.md); the [milestone-5 Agent Note](../../../.agents/notes/implemented/feature/2026-08-19-dsh-kb-milestone-5-workbench-and-mcp.md) owns the scope decisions, the [milestone-7 Agent Note](../../../.agents/notes/implemented/feature/2026-08-19-dsh-kb-milestone-7-doc-import-and-workbench-edit.md) adds the edit surface, and the [milestone-8 Agent Note](../../../.agents/notes/implemented/feature/2026-08-20-dsh-kb-milestone-8-team-docs-web-write.md) adds the team docs write surface.
 
 ## Surface
 
@@ -13,6 +13,7 @@ The section appears under the web settings panel once a deployment composes it (
 - **Card detail** — one full card's knowledge fields, opened from any review row, top-heat entry, or blind-spot consumed card.
 - **Lifecycle actions** — the exact transitions the kb seam supports: promote to pending/ready (personal), approve/reject review (team pending), archive (team ready/revived), revive (team archived). Every action rides the `kbWorkbench` Remote namespace, which performs the `ctx.kb` operation and appends the same `kb/promote` event the tools append to the workbench session's own log.
 - **Content edit** — an 编辑 button opens a form over the content fields (type / title / 适用条件 / 核心结论 / 应做 / 不应做 / 反例 / 来源 / 责任人 / 有效期 / 标签). Save sends the patch with the detail's mtime/size identity, so a concurrent modification fails loud with a conflict message and the form stays open; a team-card edit requires the explicit confirmation (approved) under the default `teamWriteApproval`. Success appends `kb/edit` on the host and refreshes the detail and the overview.
+- **Team docs** — a wiki docs block lists the team library's `docs/` documents (repository-relative paths); opening one shows its content, and 编辑文档 opens a textarea form. Save overwrites through the host's `writeDoc` with the read identity (conflict-guarded) and the same team confirmation the card edit uses; 删除文档 asks for an explicit confirm before `removeDoc`. Both append `kb/doc-write` / `kb/doc-remove` on the host and refresh the list. Docs never enter the card list or the reference pool.
 
 ## Data and mutation flow
 
@@ -24,7 +25,7 @@ All data arrives through the generated `kbWorkbench` Remote namespace (mounted b
 
 #### What the model sees
 
-The workbench adds no model-visible surface of its own: the actions it drives append the same `kb/*` events the existing tools append, so a human action is reconstructable from the session log exactly like a tool call. A `kb/promote` event carries the transition payload whenever a workbench action performs a transition; a rejected review appends nothing, exactly like `kb_review`. A content edit appends `kb/edit` with the changed field names (the card file stays the content source of truth); an edit that changes nothing appends nothing. The dashboard's numbers are projections of `kb/*` events and their persisted files — the heat ledger, the recap checkpoint, and the card files.
+The workbench adds no model-visible surface of its own: the actions it drives append the same `kb/*` events the existing tools append, so a human action is reconstructable from the session log exactly like a tool call. A `kb/promote` event carries the transition payload whenever a workbench action performs a transition; a rejected review appends nothing, exactly like `kb_review`. A content edit appends `kb/edit` with the changed field names (the card file stays the content source of truth); an edit that changes nothing appends nothing. A team docs write or removal appends `kb/doc-write` (the doc path and byte size; the doc file stays the content source of truth) or `kb/doc-remove` (the doc path). The dashboard's numbers are projections of `kb/*` events and their persisted files — the heat ledger, the recap checkpoint, and the card files.
 
 #### Token effect
 
@@ -37,6 +38,7 @@ Append-only; workbench-driven events follow the reusable request prefix like any
 ## Known Limitations and Deferred Work
 
 - **Opt-in composition** — kb-core, kb-web, and this plugin mount through the deployment's own `cordis.yml`; the shipped `dsh-web-app` bundle does not include kb.
-- **Team edits confirm in-band** — the team-card edit form renders an explicit "write to the shared team library" confirmation, the `approved` signal the host gate requires; there is no separate approval dialog.
+- **Team edits confirm in-band** — the team-card edit form renders an explicit "write to the shared team library" confirmation, the `approved` signal the host gate requires; the team docs block carries the same confirmation for saves and a two-step confirm for removal. There is no separate approval dialog.
+- **Team docs are overwrite + remove only** — the block edits and deletes existing `docs/` documents; creating a new document stays with the team's git workflow (a workbench create affordance awaits a real wiki-authoring requirement).
 - **One session per workspace** — the selector lists sessions with a workspace root; a workspace with no session cannot serve the workbench.
 - **Errors surface in-band** — Remote failures render in the section's alert row with a retry; there is no toast or notification channel (IM notification is deferred).
