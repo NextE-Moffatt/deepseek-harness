@@ -24,6 +24,15 @@ export {
 
 const DEFAULT_PROCESS_TIMEOUT_MS = 30_000
 
+/**
+ * Node flag every spawned example needs: the base bundle's HMR service and the CLI's
+ * post-boot watch-only HMR re-mount require `loader.internal`, and `vendor/loader`'s
+ * `requireInternal` reaches the internal ESM loader directly only when `--expose-internals`
+ * is in `process.execArgv`; the fallback `node-addon-require-builtin` prebuild does not load
+ * on every supported Node major (it targets the Node 22 ABI, not Node 24).
+ */
+const NODE_FLAGS = ['--expose-internals']
+
 /** Vitest deadline that leaves room for the subprocess-owned 30-second diagnostic timeout. */
 export const LOADER_SMOKE_TEST_TIMEOUT_MS = DEFAULT_PROCESS_TIMEOUT_MS + 15_000
 
@@ -94,9 +103,10 @@ function toLibBin(srcBin: string): string {
 /**
  * Resolve how to spawn an example bin in the selected mode.
  *
- * `src` yields `node --import <tsx> <srcBin> <configArgs>` with `TSX_TSCONFIG_PATH` set so the
+ * `src` yields `node --expose-internals --import <tsx> <srcBin> <configArgs>` with
+ * `TSX_TSCONFIG_PATH` set so the
  * tsconfig `paths` map resolves workspace imports to source. `lib` yields
- * `node <libBin> <configArgs>` under plain Node with no tsx and no paths map, so
+ * `node --expose-internals <libBin> <configArgs>` under plain Node with no tsx and no paths map, so
  * bare package plugins resolve through real package `exports` into built `lib/`; relative example-local
  * TypeScript plugins remain source files loaded through Node's built-in type stripping. Bare resolution
  * requires the config to live below a workspace that declares its `cordis.yml` package dependencies.
@@ -115,10 +125,10 @@ export function resolveExampleLaunch(options: ExampleLaunchOptions): ExampleLaun
     }
     const tsxLoader = import.meta.resolve('tsx')
     env.TSX_TSCONFIG_PATH = options.tsconfigPath
-    return { command: process.execPath, args: ['--import', tsxLoader, options.srcBin, ...configArgs], env }
+    return { command: process.execPath, args: [...NODE_FLAGS, '--import', tsxLoader, options.srcBin, ...configArgs], env }
   }
 
-  return { command: process.execPath, args: [options.libBin ?? toLibBin(options.srcBin), ...configArgs], env }
+  return { command: process.execPath, args: [...NODE_FLAGS, options.libBin ?? toLibBin(options.srcBin), ...configArgs], env }
 }
 
 /** Inputs that vary between real-Loader example smokes. */

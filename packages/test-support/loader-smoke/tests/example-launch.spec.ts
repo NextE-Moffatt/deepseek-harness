@@ -47,6 +47,7 @@ describe('resolveExampleLaunch', () => {
       tsconfigPath: TSCONFIG,
     })
     expect(command).toBe(process.execPath)
+    expect(args[0]).toBe('--expose-internals')
     expect(args).toContain('--import')
     expect(args).toContain(SRC_BIN)
     expect(args[args.length - 1]).toBe('./cordis.yml')
@@ -64,6 +65,7 @@ describe('resolveExampleLaunch', () => {
       mode: 'lib',
       env: { DSH_HOME: '/tmp/home' },
     })
+    expect(args[0]).toBe('--expose-internals')
     expect(args).not.toContain('--import')
     expect(args).toContain('/repo/packages/examples/acp-demo/lib/bin.js')
     expect(args.slice(-2)).toEqual(['--config', './cordis.yml'])
