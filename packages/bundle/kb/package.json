@@ -1,6 +1,6 @@
 {
   "name": "@deepseek-ai/dsh-kb",
-  "description": "Opt-in knowledge-base bundle for tools and the Web governance workbench",
+  "description": "KB Dance knowledge-base tools and Web governance workbench bundle",
   "version": "0.1.0-rc.8",
   "publishConfig": {
     "access": "public"

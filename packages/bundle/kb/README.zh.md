@@ -1,8 +1,10 @@
-# `@deepseek-ai/dsh-kb`
+# KB Dance（`@deepseek-ai/dsh-kb`）
 
 [English](README.md) | 中文
 
-面向 Web profile 的可选知识库组合包。[`cordis.patch.yml`](cordis.patch.yml) 把 [`@deepseek-ai/dsh-kb-core`](../../kb/kb-core/README.md)、[`@deepseek-ai/dsh-kb-web`](../../kb/kb-web/README.md) 与 [`@deepseek-ai/dsh-client-ui-kb-workbench`](../../client/ui-kb-workbench/README.md) 作为一个可安装 patch 层挂载。组合后的 profile 提供 `kb_*` 工具，并在 Web 设置中增加**知识库** section。
+KB Dance 把本地文档和共享团队文档组织成 Agent 可检索、可维护的知识库。它提供供模型检索和更新知识的 `kb_*` 工具，并提供**知识库** Web 工作台，用于检查来源、管理知识卡片和提交经过确认的团队库变更。
+
+[`cordis.patch.yml`](cordis.patch.yml) 把 [`@deepseek-ai/dsh-kb-core`](../../kb/kb-core/README.md)、[`@deepseek-ai/dsh-kb-web`](../../kb/kb-web/README.md) 与 [`@deepseek-ai/dsh-client-ui-kb-workbench`](../../client/ui-kb-workbench/README.md) 作为面向 Web profile 的一个可安装 patch 层挂载。
 
 把组合包安装进 Web profile：
 

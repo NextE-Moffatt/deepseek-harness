@@ -1,8 +1,10 @@
-# `@deepseek-ai/dsh-kb`
+# KB Dance (`@deepseek-ai/dsh-kb`)
 
 English | [中文](README.zh.md)
 
-The opt-in knowledge-base bundle for a Web profile. [`cordis.patch.yml`](cordis.patch.yml) mounts [`@deepseek-ai/dsh-kb-core`](../../kb/kb-core/README.md), [`@deepseek-ai/dsh-kb-web`](../../kb/kb-web/README.md), and [`@deepseek-ai/dsh-client-ui-kb-workbench`](../../client/ui-kb-workbench/README.md) as one installable patch layer. The resulting profile exposes the `kb_*` tools and adds the **Knowledge Base** section to Web settings.
+KB Dance turns local and shared team documents into knowledge libraries that agents can search and maintain. It provides model-facing `kb_*` tools for retrieval and updates, plus a **Knowledge Base** Web workbench for inspecting sources, managing knowledge cards, and committing approved team-library changes.
+
+[`cordis.patch.yml`](cordis.patch.yml) mounts [`@deepseek-ai/dsh-kb-core`](../../kb/kb-core/README.md), [`@deepseek-ai/dsh-kb-web`](../../kb/kb-web/README.md), and [`@deepseek-ai/dsh-client-ui-kb-workbench`](../../client/ui-kb-workbench/README.md) as one installable patch layer for a Web profile.
 
 Install the bundle into a Web profile:
 
