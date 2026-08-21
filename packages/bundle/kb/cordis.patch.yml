@@ -1,0 +1,14 @@
+# Optional knowledge-base Profile Bundle. The deployment supplies teamRepoPath
+# in a later profile, home, or invocation patch when a shared git work tree is
+# available; the personal library always resolves from each Session workspace.
+- insert:
+    - id: kb-core
+      name: '@deepseek-ai/dsh-kb-core'
+      config:
+        packs: []
+
+    - id: kb-web
+      name: '@deepseek-ai/dsh-kb-web'
+
+    - id: kb-workbench
+      name: '@deepseek-ai/dsh-client-ui-kb-workbench'

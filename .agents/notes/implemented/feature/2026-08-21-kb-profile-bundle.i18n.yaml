@@ -1,0 +1,6 @@
+# Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
+# side as of the last confirmed-consistent state. Both languages carry equal authority;
+# after editing either side, bring the other along and re-record with:
+#   pnpm run verify-translation-pairing --write .agents/notes/implemented/feature/2026-08-21-kb-profile-bundle.md
+2026-08-21-kb-profile-bundle.md: 6c0ccf430334856c38a0c9ebd3864ffcf73b21c1
+2026-08-21-kb-profile-bundle.zh.md: c6c798e1ccbfb69baff75a7a8b594c0e1cf59060
